@@ -28,3 +28,61 @@
 - 主持人開啟網頁，建立房間，取得房間代碼/QR 碼
 - 其他玩家用手機掃碼或輸入代碼加入
 - 所有互動在手機瀏覽器內完成
+
+## Quick Start
+
+### 1. Prerequisites
+- Go 1.25+
+- Node.js 22+ and npm
+- Docker (for container run/deploy)
+
+### 2. Run locally
+
+```bash
+# from project root
+cd frontend
+npm install
+npm run build
+
+cd ..
+go mod tidy
+go run main.go
+```
+
+Open: `http://localhost:3000`
+
+Optional env vars:
+
+```bash
+PORT=3000 DAY_TIMEOUT_SEC=300 VOTE_TIMEOUT_SEC=60 go run main.go
+```
+
+### 3. Run with Docker
+
+```bash
+docker build -t wolfword:latest .
+docker run --rm -p 3000:3000 wolfword:latest
+```
+
+Health check:
+
+```bash
+curl http://localhost:3000/healthz
+```
+
+### 4. Publish public image to ttl.sh
+
+```bash
+chmod +x deploy/push-ttl.sh
+./deploy/push-ttl.sh 2h mytag
+```
+
+This will:
+- build and push image to `ttl.sh`
+- patch `k8s/deployment.yaml` image field
+
+Then deploy:
+
+```bash
+kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml
+```
