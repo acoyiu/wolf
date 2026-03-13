@@ -26,18 +26,20 @@ Context is totally correct as intent.
 
 ## Step 3: Examples (Agent generates → Human approves)
 
-| #   | Input | Output | Note               |
-| --- | ----- | ------ | ------------------ |
-| 1   |       |        | happy path         |
-| 2   |       |        | happy path variant |
-| 3   |       |        | edge case          |
-| 4   |       |        | edge case          |
-| 5   |       |        | error case         |
+| #   | 輸入 | 輸出 | 說明 |
+| --- | ---- | ---- | ---- |
+| 1   | `docker build -t wolfword:latest .` | Multi-stage 建置成功。最終映像基於 `alpine`。映像大小 < 30MB。 | 正常：建置 |
+| 2   | `docker run -p 3000:3000 wolfword:latest` | 伺服器啟動，log 顯示 `listening on :3000`。`GET /` 回傳 Vue SPA。`ws://localhost:3000/ws` 接受 WebSocket。 | 正常：執行 |
+| 3   | `GET /healthz` | 回傳 HTTP 200 `{"status":"ok"}` | 正常：健康檢查 |
+| 4   | `docker run -e PORT=8080 wolfword:latest` | 伺服器改用 8080 埠啟動（非預設 3000）。 | 邊界：自訂埠號 |
+| 5   | `kubectl apply -f k8s/` | Deployment（replicas=1）+ Service（type=ClusterIP）建立。Pod 運行中且健康。 | 正常：k8s 部署 |
+| 6   | Pod 崩潰並重啟 | k8s 重啟 Pod。記憶體中的遊戲狀態丟失（可接受：遊戲時間短）。新連線正常運作。 | 邊界：Pod 重啟 |
+| 7   | 主機未安裝 Node.js 時建置 | Multi-stage 建置在 builder 階段處理 Node.js。主機只需要 Docker。 | 邊界：建置依賴 |
 
 **Human approval:**
 - [ ] Reviewed each example
 
-Approved by: ___  Date: ___
+Approved by: Aco
 
 ## Step 4: Tests + Implementation (Agent auto-completes)
 

@@ -25,18 +25,19 @@ Context is totally correct as intent.
 
 ## Step 3: Examples (Agent generates → Human approves)
 
-| #   | Input | Output | Note               |
-| --- | ----- | ------ | ------------------ |
-| 1   |       |        | happy path         |
-| 2   |       |        | happy path variant |
-| 3   |       |        | edge case          |
-| 4   |       |        | edge case          |
-| 5   |       |        | error case         |
+| #   | 輸入                                                 | 輸出                                                         | 說明             |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------ | ---------------- |
+| 1   | `GetCandidates(difficulty="easy")`                   | 回傳3個隨機簡單詞，例如 `["蘋果", "太陽", "書包"]`           | 正常：簡單難度   |
+| 2   | `GetCandidates(difficulty="medium")`                 | 回傳3個隨機中等詞，例如 `["民主", "引力", "咖啡因"]`         | 正常：中等難度   |
+| 3   | `GetCandidates(difficulty="hard")`                   | 回傳3個隨機困難詞，例如 `["量子纏結", "存在主義", "區塊鏈"]` | 正常：困難難度   |
+| 4   | 同一局內呼叫 `GetCandidates(difficulty="easy")` 兩次 | 每次回傳不同的3個詞（同局內不重複）                          | 邊界：不重複     |
+| 5   | `GetCandidates(difficulty="invalid")`                | 錯誤：`invalid difficulty level`                             | 錯誤：無效難度   |
+| 6   | 程式啟動時載入詞庫                                   | 每個難度至少100個詞；驗證詞彙總數                            | 邊界：詞庫完整性 |
 
 **Human approval:**
 - [ ] Reviewed each example
 
-Approved by: ___  Date: ___
+Approved by: Aco
 
 ## Step 4: Tests + Implementation (Agent auto-completes)
 

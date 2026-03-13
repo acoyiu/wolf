@@ -29,18 +29,20 @@ Context is totally correct as intent.
 
 ## Step 3: Examples (Agent generates → Human approves)
 
-| #   | Input | Output | Note               |
-| --- | ----- | ------ | ------------------ |
-| 1   |       |        | happy path         |
-| 2   |       |        | happy path variant |
-| 3   |       |        | edge case          |
-| 4   |       |        | edge case          |
-| 5   |       |        | error case         |
+| #   | 輸入                            | 輸出                                                                                                                                                                                              | 說明                        |
+| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| 1   | 5人遊戲，房主=Alice             | 角色：村長(Alice)+秘密身份、先知x1、狼人x1、村民x2。每人收到私訊 `{"type":"role_assigned","payload":{"role":"villager"}}`。村長額外收到 `{"type":"mayor_secret","payload":{"secretRole":"seer"}}` | 正常：5人（4-6人範圍，1狼） |
+| 2   | 8人遊戲，房主=Alice             | 角色：村長(Alice)+秘密身份、先知x1、狼人x2、村民x4。每人私下通知                                                                                                                                  | 正常：8人（7-8人範圍，2狼） |
+| 3   | 10人遊戲，房主=Alice            | 角色：村長(Alice)+秘密身份、先知x1、狼人x3、村民x5。每人私下通知                                                                                                                                  | 正常：10人（9+人範圍，3狼） |
+| 4   | 4人遊戲（最少人數），房主=Alice | 角色：村長(Alice)+秘密身份、先知x1、狼人x1、村民x1                                                                                                                                                | 邊界：最少人數              |
+| 5   | 村長秘密身份隨機抽到狼人        | 村長收到 `{"type":"mayor_secret","payload":{"secretRole":"werewolf"}}`。村長同時是房主和秘密狼人                                                                                                  | 邊界：村長是狼人            |
+| 6   | 村長秘密身份隨機抽到先知        | 村長收到 `{"type":"mayor_secret","payload":{"secretRole":"seer"}}`。村長同時是房主和秘密先知                                                                                                      | 邊界：村長是先知            |
+| 7   | 只有3人時觸發開始遊戲           | 錯誤：由 room-management 攔截（人數不足），role-assignment 不會被呼叫                                                                                                                             | 錯誤：前置條件不符          |
 
 **Human approval:**
 - [ ] Reviewed each example
 
-Approved by: ___  Date: ___
+Approved by: Aco
 
 ## Step 4: Tests + Implementation (Agent auto-completes)
 

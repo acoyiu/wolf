@@ -26,18 +26,19 @@ Context is totally correct as intent.
 
 ## Step 3: Examples (Agent generates → Human approves)
 
-| #   | Input | Output | Note               |
-| --- | ----- | ------ | ------------------ |
-| 1   |       |        | happy path         |
-| 2   |       |        | happy path variant |
-| 3   |       |        | edge case          |
-| 4   |       |        | edge case          |
-| 5   |       |        | error case         |
+| #   | 輸入                         | 輸出                                                                                                                                         | 說明                     |
+| --- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| 1   | 咒語猜對 + 狼人沒猜中先知    | `{"type":"game_over","payload":{"winner":"villagers","reason":"word_guessed_seer_safe","word":"apple","roles":{...}}}`。公開所有角色和咒語。 | 正常：村民勝（猜對咒語） |
+| 2   | 咒語猜對 + 狼人猜中先知      | `{"type":"game_over","payload":{"winner":"werewolves","reason":"word_guessed_seer_found","word":"apple","roles":{...}}}`                     | 正常：狼人逆轉勝         |
+| 3   | 咒語沒猜對 + 投票命中狼人    | `{"type":"game_over","payload":{"winner":"villagers","reason":"word_missed_wolf_caught","word":"apple","roles":{...}}}`                      | 正常：村民勝（投票）     |
+| 4   | 咒語沒猜對 + 投票沒命中狼人  | `{"type":"game_over","payload":{"winner":"werewolves","reason":"word_missed_wolf_safe","word":"apple","roles":{...}}}`                       | 正常：狼人勝             |
+| 5   | 遊戲結果顯示10秒後           | 所有 WebSocket 關閉。房間刪除。所有玩家回到大廳。`{"type":"room_closed","payload":{"reason":"game_ended"}}`                                  | 邊界：強制關房           |
+| 6   | 玩家在結果畫面重新整理瀏覽器 | 玩家看到大廳頁面。房間已不存在。                                                                                                             | 邊界：結束後重新整理     |
 
 **Human approval:**
 - [ ] Reviewed each example
 
-Approved by: ___  Date: ___
+Approved by: Aco
 
 ## Step 4: Tests + Implementation (Agent auto-completes)
 
