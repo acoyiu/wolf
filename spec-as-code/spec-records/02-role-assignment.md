@@ -40,7 +40,7 @@ Context is totally correct as intent.
 | 7   | 只有3人時觸發開始遊戲           | 錯誤：由 room-management 攔截（人數不足），role-assignment 不會被呼叫                                                                                                                             | 錯誤：前置條件不符          |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 

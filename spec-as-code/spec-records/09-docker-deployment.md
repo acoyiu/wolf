@@ -37,7 +37,7 @@ Context is totally correct as intent.
 | 7   | 主機未安裝 Node.js 時建置 | Multi-stage 建置在 builder 階段處理 Node.js。主機只需要 Docker。 | 邊界：建置依賴 |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 

@@ -36,7 +36,7 @@ Context is totally correct as intent.
 | 6   | 玩家在結果畫面重新整理瀏覽器 | 玩家看到大廳頁面。房間已不存在。                                                                                                             | 邊界：結束後重新整理     |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 

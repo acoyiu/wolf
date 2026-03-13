@@ -41,7 +41,7 @@ Context is totally correct as intent.
 | 9   | 計時結束，部分玩家未投票                                     | 伺服器為未投票者隨機選擇一個目標（不能是自己）。所有票數一起結算。                                                                                                                     | 邊界：超時未投票   |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 

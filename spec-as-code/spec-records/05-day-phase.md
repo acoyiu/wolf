@@ -40,7 +40,7 @@ Context is totally correct as intent.
 | 8   | 白天階段有玩家斷線 | `{"type":"game_aborted","payload":{"reason":"player_disconnected"}}`。遊戲中止。 | 錯誤：斷線 |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 

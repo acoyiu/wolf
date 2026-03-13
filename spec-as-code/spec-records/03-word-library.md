@@ -35,7 +35,7 @@ Context is totally correct as intent.
 | 6   | 程式啟動時載入詞庫                                   | 每個難度至少100個詞；驗證詞彙總數                            | 邊界：詞庫完整性 |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 

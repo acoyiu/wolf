@@ -39,7 +39,7 @@ Context is totally correct as intent.
 | 7   | 夜間有玩家斷線 | 伺服器發送 `{"type":"game_aborted","payload":{"reason":"player_disconnected"}}` 給所有人。遊戲中止，回到大廳。 | 錯誤：斷線 |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 

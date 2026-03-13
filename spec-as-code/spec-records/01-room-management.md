@@ -42,7 +42,7 @@ Context is totally correct as intent.
 | 10  | 房主斷線（WebSocket 關閉）                                                           | 房間刪除，所有連線關閉，所有玩家收到 `{"type":"room_closed","payload":{"reason":"host_disconnected"}}` 並回到大廳                                                | 邊界：房主斷線，遊戲作廢 |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 

@@ -41,7 +41,7 @@ Context is totally correct as intent.
 | 8   | 螢幕寬度 = 320px（最小值） | 畫面不溢出、文字可讀、按鈕可點擊。無水平捲軸。 | 邊界：最小寬度 |
 
 **Human approval:**
-- [ ] Reviewed each example
+- [x] Reviewed each example
 
 Approved by: Aco
 
