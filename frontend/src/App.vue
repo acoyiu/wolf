@@ -91,24 +91,27 @@
 
     <section class="panel" v-if="view === 'night'">
       <h2>Night Phase</h2>
-      <p class="label">Role: {{ roleText }}</p>
+      <p class="role-display">Role: <span>{{ roleText }}</span></p>
 
       <article class="glass card" v-if="night.step === 1 && isHost">
         <p>Pick the secret word.</p>
+        <p class="label" v-if="selectedWord">Selected: {{ selectedWord }}. Waiting for others...</p>
         <div class="pill-grid">
-          <button class="btn pill" v-for="word in night.candidates" :key="word" @click="pickWord(word)">{{ word }}</button>
+          <button class="btn pill" v-for="word in night.candidates" :key="word" @click="pickWord(word)" :disabled="Boolean(selectedWord)">{{ word }}</button>
         </div>
       </article>
 
       <article class="glass card" v-else-if="night.revealWord">
         <p>Memorize this word:</p>
         <p class="word">{{ night.revealWord }}</p>
-        <button class="btn" @click="nightConfirm">Next</button>
+        <button class="btn" @click="nightConfirm" :disabled="nightConfirmed">{{ nightConfirmed ? 'Confirmed' : 'Next' }}</button>
+        <p class="label" v-if="nightConfirmed">Waiting for other players...</p>
       </article>
 
       <article class="glass card" v-else>
         <p>Tap next to keep all screens in sync.</p>
-        <button class="btn" @click="nightConfirm">Next</button>
+        <button class="btn" @click="nightConfirm" :disabled="nightConfirmed">{{ nightConfirmed ? 'Confirmed' : 'Next' }}</button>
+        <p class="label" v-if="nightConfirmed">Waiting for other players...</p>
       </article>
     </section>
 
@@ -132,10 +135,16 @@
 
       <article class="glass card">
         <p class="label">Remaining</p>
-        <p class="mono wrap">{{ tokenRemainingText }}</p>
+        <div class="token-grid token-dashboard">
+          <div class="token-stat" :class="`token ${item.className}`" v-for="item in tokenStats" :key="item.key">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
         <p class="label">History</p>
         <div class="history">
-          <span class="chip" v-for="(token, idx) in day.history" :key="idx">{{ token }}</span>
+          <span class="chip token-chip" :class="`token ${tokenClass(token)}`" v-for="(token, idx) in day.history" :key="idx">{{ token.toUpperCase() }}</span>
+          <span class="label" v-if="day.history.length === 0">No responses yet.</span>
         </div>
       </article>
     </section>
@@ -195,6 +204,8 @@ const shareUrl = ref('')
 const qrDataUrl = ref('')
 const votedFor = ref('')
 const voteMode = ref('guess_wolf')
+const nightConfirmed = ref(false)
+const selectedWord = ref('')
 
 const room = reactive({
   roomCode: '',
@@ -242,7 +253,14 @@ const canStart = computed(() => isHost.value && room.players.length >= room.targ
 const roleText = computed(() => (myRole.value === 'mayor' ? `mayor (${mayorSecret.value || 'unknown'})` : myRole.value || 'unknown'))
 const voteCandidates = computed(() => room.players.filter((p) => p.id !== playerId.value))
 const votePrompt = computed(() => (voteMode.value === 'guess_seer' ? 'Werewolves vote for the Seer.' : 'All players vote for a Werewolf.'))
-const tokenRemainingText = computed(() => JSON.stringify(day.remaining))
+const tokenStats = computed(() => [
+  { key: 'yes', label: 'YES', className: 'yes', value: day.remaining.yes },
+  { key: 'no', label: 'NO', className: 'no', value: day.remaining.no },
+  { key: 'maybe', label: 'MAYBE', className: 'maybe', value: day.remaining.maybe },
+  { key: 'close', label: 'CLOSE', className: 'close', value: day.remaining.close },
+  { key: 'far', label: 'FAR', className: 'far', value: day.remaining.far },
+  { key: 'correct', label: 'CORRECT', className: 'correct', value: day.remaining.correct },
+])
 
 watch(shareUrl, async (value) => {
   if (!value) {
@@ -303,16 +321,22 @@ function handleMessage(msg) {
       night.step = payload.step || 1
       night.candidates = payload.candidates || []
       night.revealWord = ''
+      nightConfirmed.value = false
+      selectedWord.value = ''
       break
     case 'night_reveal':
       view.value = 'night'
       night.step = payload.step || 2
       night.revealWord = payload.word || ''
+      nightConfirmed.value = false
+      selectedWord.value = ''
       break
     case 'phase_change':
       if (payload.phase === 'day') {
         view.value = 'day'
         day.history = []
+        nightConfirmed.value = false
+        selectedWord.value = ''
       }
       break
     case 'mayor_response':
@@ -366,7 +390,7 @@ function hydrateRoom(payload) {
 
 function createRoom() {
   if (!myNickname.value) return toast('nickname_required')
-  send('create_room', {
+  emit('create_room', {
     nickname: myNickname.value,
     targetPlayers: Math.min(10, Math.max(4, Number(targetPlayers.value) || 6)),
     difficulty: difficulty.value,
@@ -376,36 +400,70 @@ function createRoom() {
 function joinRoom() {
   if (!myNickname.value) return toast('nickname_required')
   if (!joinCode.value) return toast('room_code_required')
-  send('join_room', {
+  emit('join_room', {
     roomCode: joinCode.value.toUpperCase(),
     nickname: myNickname.value,
   })
 }
 
 function leaveRoom() {
-  send('leave_room', {})
+  emit('leave_room', {})
   resetToLobby()
 }
 
 function startGame() {
-  send('start_game', {})
+  emit('start_game', {})
 }
 
 function pickWord(word) {
-  send('night_pick_word', { word })
+  if (selectedWord.value) {
+    return
+  }
+  const ok = emit('night_pick_word', { word })
+  if (ok) {
+    selectedWord.value = word
+  }
 }
 
 function nightConfirm() {
-  send('night_confirm', {})
+  if (nightConfirmed.value) {
+    return
+  }
+  const ok = emit('night_confirm', {})
+  if (ok) {
+    nightConfirmed.value = true
+  }
 }
 
 function sendToken(token) {
-  send('day_token', { token })
+  emit('day_token', { token })
+}
+
+function tokenClass(token) {
+  switch (token) {
+    case 'yes':
+    case 'no':
+    case 'maybe':
+    case 'close':
+    case 'far':
+    case 'correct':
+      return token
+    default:
+      return ''
+  }
 }
 
 function castVote(targetId) {
   votedFor.value = targetId
-  send('vote_cast', { target: targetId })
+  emit('vote_cast', { target: targetId })
+}
+
+function emit(type, payload) {
+  const ok = send(type, payload)
+  if (!ok) {
+    toast('socket_not_connected')
+  }
+  return ok
 }
 
 function roleByPlayer(id) {
@@ -442,6 +500,8 @@ function resetToLobby() {
   night.step = 1
   night.candidates = []
   night.revealWord = ''
+  nightConfirmed.value = false
+  selectedWord.value = ''
   day.history = []
   day.remaining = { yes: 48, no: 48, maybe: 1, close: 1, far: 1, correct: 1 }
   result.winner = ''

@@ -89,6 +89,19 @@ h2 {
   font-family: 'Fraunces', serif;
 }
 
+.role-display {
+  margin: 0.45rem 0 0.8rem;
+  font-size: clamp(1.2rem, 3.8vw, 2rem);
+  font-weight: 700;
+  color: #17212b;
+  line-height: 1.2;
+}
+
+.role-display span {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .hero p {
   color: var(--muted);
 }
@@ -126,6 +139,10 @@ select {
   color: var(--ink);
 }
 
+.field + .btn {
+  margin-top: 0.55rem;
+}
+
 .btn:disabled {
   opacity: 0.45;
 }
@@ -140,6 +157,10 @@ select {
 .waiting-layout {
   display: grid;
   gap: 0.85rem;
+}
+
+.lobby-grid {
+  margin-top: 0.85rem;
 }
 
 .card {
@@ -223,6 +244,25 @@ select {
   gap: 0.5rem;
 }
 
+.token-dashboard {
+  margin-bottom: 0.8rem;
+}
+
+.token-stat {
+  min-height: 64px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+}
+
+.token-stat strong {
+  font-size: 1.25rem;
+}
+
 .token.yes { background: #d9f6e8; }
 .token.no { background: #ffe0de; }
 .token.maybe { background: #fff6cf; }
@@ -253,6 +293,10 @@ select {
   border: 1px solid var(--stroke);
   background: #fff;
   font-size: 0.82rem;
+}
+
+.token-chip {
+  font-weight: 700;
 }
 
 .winner {
