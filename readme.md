@@ -86,3 +86,33 @@ Then deploy:
 ```bash
 kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml
 ```
+
+## 自動化多人測試（免開 4-6 個瀏覽器）
+
+使用內建 WebSocket 機器人煙霧測試，模擬 4 位玩家完整跑一局：
+
+```bash
+go test ./internal/ws -run TestHubSmokeFourPlayersNoBrowsers -count=1
+```
+
+如果要跑全部後端測試：
+
+```bash
+go test ./...
+```
+
+## 前端 E2E 測試（免手動開多視窗）
+
+使用 Playwright 在 headless Chromium 中同時模擬 4 位玩家操作 UI：
+
+```bash
+cd frontend
+npm install
+npm run test:e2e:install
+npm run test:e2e
+```
+
+測試會自動：
+- build 前端
+- 啟動 Go 後端（本機 `4173`）
+- 跑完「建房 -> 4 人加入 -> 開始 -> 夜晚 -> 白天 -> 投票 -> 結果」完整流程

@@ -6,13 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
     "vue": "^3.5.22"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.0",
     "@vitejs/plugin-vue": "^6.0.1",
     "vite": "^7.1.12"
   }
