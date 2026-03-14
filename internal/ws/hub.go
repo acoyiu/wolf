@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	defaultDifficulty = wordlib.Easy
+	defaultDifficulty     = wordlib.Easy
+	defaultReconnectGrace = 20 * time.Second
 )
 
 type Envelope struct {
@@ -44,15 +45,17 @@ type Hub struct {
 	roomManager *room.Manager
 	wordLibrary *wordlib.Library
 
-	mu             sync.RWMutex
-	games          map[string]*game.Game
-	clients        map[string]*Client
-	roomMembers    map[string]map[string]*Client
-	roomDifficulty map[string]wordlib.Difficulty
-	roomTimers     map[string]*roomTimer
+	mu                sync.RWMutex
+	games             map[string]*game.Game
+	clients           map[string]*Client
+	roomMembers       map[string]map[string]*Client
+	roomDifficulty    map[string]wordlib.Difficulty
+	roomTimers        map[string]*roomTimer
+	pendingReconnects map[string]*pendingReconnect
 
-	dayTimeout  time.Duration
-	voteTimeout time.Duration
+	dayTimeout     time.Duration
+	voteTimeout    time.Duration
+	reconnectGrace time.Duration
 }
 
 type roomTimer struct {
@@ -60,20 +63,28 @@ type roomTimer struct {
 	voteCancel chan struct{}
 }
 
+type pendingReconnect struct {
+	RoomCode string
+	Nickname string
+	timer    *time.Timer
+}
+
 func NewHub(dayTimeout, voteTimeout time.Duration) *Hub {
 	return &Hub{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(_ *http.Request) bool { return true },
 		},
-		roomManager:    room.NewManager(),
-		wordLibrary:    wordlib.New(),
-		games:          make(map[string]*game.Game),
-		clients:        make(map[string]*Client),
-		roomMembers:    make(map[string]map[string]*Client),
-		roomDifficulty: make(map[string]wordlib.Difficulty),
-		roomTimers:     make(map[string]*roomTimer),
-		dayTimeout:     dayTimeout,
-		voteTimeout:    voteTimeout,
+		roomManager:       room.NewManager(),
+		wordLibrary:       wordlib.New(),
+		games:             make(map[string]*game.Game),
+		clients:           make(map[string]*Client),
+		roomMembers:       make(map[string]map[string]*Client),
+		roomDifficulty:    make(map[string]wordlib.Difficulty),
+		roomTimers:        make(map[string]*roomTimer),
+		pendingReconnects: make(map[string]*pendingReconnect),
+		dayTimeout:        dayTimeout,
+		voteTimeout:       voteTimeout,
+		reconnectGrace:    defaultReconnectGrace,
 	}
 }
 
@@ -133,6 +144,8 @@ func (h *Hub) dispatch(client *Client, in Envelope) {
 		h.handleCreateRoom(client, in.Payload)
 	case "join_room":
 		h.handleJoinRoom(client, in.Payload)
+	case "resume_session":
+		h.handleResumeSession(client, in.Payload)
 	case "leave_room":
 		h.handleLeaveRoom(client)
 	case "start_game":
@@ -202,6 +215,12 @@ type joinRoomPayload struct {
 	Nickname string `json:"nickname"`
 }
 
+type resumeSessionPayload struct {
+	PlayerID string `json:"playerId"`
+	RoomCode string `json:"roomCode"`
+	Nickname string `json:"nickname"`
+}
+
 func (h *Hub) handleJoinRoom(client *Client, raw json.RawMessage) {
 	var p joinRoomPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -238,12 +257,86 @@ func (h *Hub) handleJoinRoom(client *Client, raw json.RawMessage) {
 	})
 }
 
+func (h *Hub) handleResumeSession(client *Client, raw json.RawMessage) {
+	var p resumeSessionPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		h.sendError(client, "invalid_payload")
+		return
+	}
+	p.PlayerID = strings.TrimSpace(p.PlayerID)
+	p.RoomCode = strings.ToUpper(strings.TrimSpace(p.RoomCode))
+	p.Nickname = strings.TrimSpace(p.Nickname)
+	if p.PlayerID == "" || p.RoomCode == "" {
+		h.sendError(client, "invalid_payload")
+		return
+	}
+
+	rm, ok := h.roomManager.GetRoom(p.RoomCode)
+	if !ok {
+		h.sendError(client, "resume_room_not_found")
+		return
+	}
+	if !roomHasPlayer(rm, p.PlayerID) {
+		h.sendError(client, "resume_player_not_found")
+		return
+	}
+
+	h.mu.Lock()
+	pending, hasPending := h.pendingReconnects[p.PlayerID]
+	if hasPending && pending.RoomCode != p.RoomCode {
+		h.mu.Unlock()
+		h.sendError(client, "resume_not_available")
+		return
+	}
+	if !hasPending {
+		g := h.games[p.RoomCode]
+		if g == nil || g.Snapshot().Phase == game.PhaseResult {
+			h.mu.Unlock()
+			h.sendError(client, "resume_not_available")
+			return
+		}
+		if existing := h.clients[p.PlayerID]; existing != nil {
+			h.mu.Unlock()
+			h.sendError(client, "resume_in_use")
+			return
+		}
+	}
+	delete(h.pendingReconnects, p.PlayerID)
+	delete(h.clients, client.ID)
+
+	client.ID = p.PlayerID
+	if hasPending && pending.Nickname != "" {
+		client.Nickname = pending.Nickname
+	} else {
+		client.Nickname = p.Nickname
+	}
+	client.RoomCode = p.RoomCode
+	h.clients[client.ID] = client
+	if _, ok := h.roomMembers[p.RoomCode]; !ok {
+		h.roomMembers[p.RoomCode] = make(map[string]*Client)
+	}
+	h.roomMembers[p.RoomCode][client.ID] = client
+	h.mu.Unlock()
+
+	if hasPending && pending.timer != nil {
+		pending.timer.Stop()
+	}
+
+	h.sendToClient(client, "session_resumed", map[string]interface{}{
+		"playerId": client.ID,
+		"roomCode": client.RoomCode,
+	})
+	h.sendRoomState(client, rm)
+	h.sendGameState(client)
+}
+
 func (h *Hub) handleLeaveRoom(client *Client) {
 	code := client.RoomCode
 	if code == "" {
 		h.sendError(client, "room_not_found")
 		return
 	}
+	h.cancelPendingReconnect(client.ID)
 
 	rm, hostLeft, err := h.roomManager.LeaveRoom(code, client.ID)
 	if err != nil {
@@ -493,6 +586,15 @@ func (h *Hub) handleDisconnect(client *Client) {
 		return
 	}
 
+	h.mu.RLock()
+	g := h.games[code]
+	h.mu.RUnlock()
+	if g != nil && g.Snapshot().Phase != game.PhaseResult {
+		h.beginReconnectGrace(client.ID, client.Nickname, code)
+		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID})
+		return
+	}
+
 	rm, ok := h.roomManager.GetRoom(code)
 	if !ok {
 		return
@@ -502,21 +604,144 @@ func (h *Hub) handleDisconnect(client *Client) {
 		return
 	}
 
-	h.mu.RLock()
-	g := h.games[code]
-	h.mu.RUnlock()
-	if g != nil && g.Phase != game.PhaseResult {
-		for _, msg := range g.Abort("player_disconnected") {
-			h.deliverGameOut(code, msg)
-		}
-		h.scheduleRoomClose(code, "game_ended", 2*time.Second)
-		return
-	}
-
 	leftRoom, hostLeft, err := h.roomManager.LeaveRoom(code, client.ID)
 	if err == nil && !hostLeft {
 		h.broadcastRoom(code, "player_left", map[string]interface{}{"players": leftRoom.Players})
 	}
+}
+
+func (h *Hub) beginReconnectGrace(playerID, nickname, roomCode string) {
+	h.mu.Lock()
+	if existing := h.pendingReconnects[playerID]; existing != nil && existing.timer != nil {
+		existing.timer.Stop()
+	}
+	p := &pendingReconnect{RoomCode: roomCode, Nickname: nickname}
+	p.timer = time.AfterFunc(h.reconnectGrace, func() {
+		h.expireReconnectGrace(playerID, roomCode)
+	})
+	h.pendingReconnects[playerID] = p
+	h.mu.Unlock()
+}
+
+func (h *Hub) expireReconnectGrace(playerID, roomCode string) {
+	h.mu.Lock()
+	pending, ok := h.pendingReconnects[playerID]
+	if !ok || pending.RoomCode != roomCode {
+		h.mu.Unlock()
+		return
+	}
+	delete(h.pendingReconnects, playerID)
+	h.mu.Unlock()
+
+	h.mu.RLock()
+	g := h.games[roomCode]
+	h.mu.RUnlock()
+	if g == nil || g.Snapshot().Phase == game.PhaseResult {
+		return
+	}
+	for _, msg := range g.Abort("player_disconnected") {
+		h.deliverGameOut(roomCode, msg)
+	}
+	h.scheduleRoomClose(roomCode, "game_ended", 2*time.Second)
+}
+
+func (h *Hub) cancelPendingReconnect(playerID string) {
+	h.mu.Lock()
+	pending := h.pendingReconnects[playerID]
+	delete(h.pendingReconnects, playerID)
+	h.mu.Unlock()
+	if pending != nil && pending.timer != nil {
+		pending.timer.Stop()
+	}
+}
+
+func (h *Hub) sendRoomState(client *Client, rm *room.Room) {
+	h.sendToClient(client, "room_state", map[string]interface{}{
+		"roomCode":      rm.Code,
+		"targetPlayers": rm.TargetPlayers,
+		"players":       rm.Players,
+		"canStart":      len(rm.Players) >= rm.TargetPlayers,
+	})
+}
+
+func (h *Hub) sendGameState(client *Client) {
+	h.mu.RLock()
+	g := h.games[client.RoomCode]
+	h.mu.RUnlock()
+	if g == nil {
+		return
+	}
+	s := g.Snapshot()
+	role := roleForPlayer(s, client.ID)
+
+	if client.ID == s.MayorID {
+		h.sendToClient(client, "role_assigned", map[string]interface{}{"role": "mayor"})
+		h.sendToClient(client, "mayor_secret", map[string]interface{}{"secretRole": string(s.MayorSecret)})
+	} else {
+		h.sendToClient(client, "role_assigned", map[string]interface{}{"role": string(role)})
+	}
+
+	switch s.Phase {
+	case game.PhaseNightStep1:
+		if client.ID == s.MayorID {
+			h.sendToClient(client, "night_step", map[string]interface{}{"step": 1, "candidates": s.Candidates})
+		} else {
+			h.sendToClient(client, "night_step", map[string]interface{}{"step": 1, "message": "waiting"})
+		}
+	case game.PhaseNightStep2:
+		if client.ID == s.MayorID {
+			h.sendToClient(client, "night_step", map[string]interface{}{"step": 2, "message": "waiting"})
+		} else if role == game.RoleSeer || role == game.RoleWerewolf {
+			h.sendToClient(client, "night_reveal", map[string]interface{}{"step": 2, "word": s.Word})
+		} else {
+			h.sendToClient(client, "night_step", map[string]interface{}{"step": 2, "message": "waiting"})
+		}
+	case game.PhaseDay:
+		h.sendToClient(client, "phase_change", map[string]interface{}{"phase": "day"})
+		h.sendToClient(client, "day_state", map[string]interface{}{"remaining": s.Tokens, "history": s.TokenHistory})
+	case game.PhaseVote:
+		payload := map[string]interface{}{"voteType": string(s.VoteType)}
+		if votedFor, ok := s.Votes[client.ID]; ok {
+			payload["votedFor"] = votedFor
+		}
+		h.sendToClient(client, "vote_state", payload)
+	case game.PhaseResult:
+		h.sendToClient(client, "game_over", map[string]interface{}{
+			"winner":      s.Winner,
+			"reason":      s.Reason,
+			"word":        s.Word,
+			"roles":       roleMapForGameOver(s),
+			"mayorSecret": string(s.MayorSecret),
+		})
+	}
+}
+
+func roleForPlayer(s game.Snapshot, playerID string) game.Role {
+	if playerID == s.MayorID {
+		return s.MayorSecret
+	}
+	return s.Roles[playerID]
+}
+
+func roleMapForGameOver(s game.Snapshot) map[string]string {
+	roles := make(map[string]string, len(s.PlayerIDs))
+	for _, id := range s.PlayerIDs {
+		if id == s.MayorID {
+			roles[id] = "mayor"
+			continue
+		}
+		roles[id] = string(s.Roles[id])
+	}
+	return roles
+}
+
+func roomHasPlayer(rm *room.Room, playerID string) bool {
+	for _, p := range rm.Players {
+		if p.ID == playerID {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) closeRoom(code, reason string) {
@@ -525,10 +750,23 @@ func (h *Hub) closeRoom(code, reason string) {
 
 	h.mu.Lock()
 	members := h.roomMembers[code]
+	var pendingToStop []*pendingReconnect
+	for playerID, pending := range h.pendingReconnects {
+		if pending.RoomCode == code {
+			delete(h.pendingReconnects, playerID)
+			pendingToStop = append(pendingToStop, pending)
+		}
+	}
 	delete(h.roomMembers, code)
 	delete(h.games, code)
 	delete(h.roomDifficulty, code)
 	h.mu.Unlock()
+
+	for _, pending := range pendingToStop {
+		if pending.timer != nil {
+			pending.timer.Stop()
+		}
+	}
 
 	for _, c := range members {
 		h.sendToClient(c, "room_closed", map[string]interface{}{"reason": reason})

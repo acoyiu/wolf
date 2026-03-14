@@ -42,6 +42,25 @@ type OutMsg struct {
 	Payload map[string]interface{}
 }
 
+// Snapshot is a stable copy of current game state for reconnect/resume flows.
+type Snapshot struct {
+	RoomCode     string
+	PlayerIDs    []string
+	MayorID      string
+	Roles        map[string]Role
+	MayorSecret  Role
+	Phase        Phase
+	Candidates   []string
+	Word         string
+	Tokens       TokenPool
+	TokenHistory []string
+	WordGuessed  bool
+	VoteType     VoteType
+	Votes        map[string]string
+	Winner       string
+	Reason       string
+}
+
 // TokenPool tracks remaining tokens for the day phase.
 type TokenPool struct {
 	Yes     int `json:"yes"`
@@ -665,4 +684,47 @@ func (g *Game) Abort(reason string) []OutMsg {
 		Type:    "game_aborted",
 		Payload: map[string]interface{}{"reason": reason},
 	}}
+}
+
+// Snapshot returns a thread-safe copy of game state.
+func (g *Game) Snapshot() Snapshot {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	roles := make(map[string]Role, len(g.Roles))
+	for k, v := range g.Roles {
+		roles[k] = v
+	}
+
+	votes := make(map[string]string, len(g.Votes))
+	for k, v := range g.Votes {
+		votes[k] = v
+	}
+
+	playerIDs := make([]string, len(g.PlayerIDs))
+	copy(playerIDs, g.PlayerIDs)
+
+	candidates := make([]string, len(g.Candidates))
+	copy(candidates, g.Candidates)
+
+	tokenHistory := make([]string, len(g.TokenHistory))
+	copy(tokenHistory, g.TokenHistory)
+
+	return Snapshot{
+		RoomCode:     g.RoomCode,
+		PlayerIDs:    playerIDs,
+		MayorID:      g.MayorID,
+		Roles:        roles,
+		MayorSecret:  g.MayorSecret,
+		Phase:        g.Phase,
+		Candidates:   candidates,
+		Word:         g.Word,
+		Tokens:       g.Tokens,
+		TokenHistory: tokenHistory,
+		WordGuessed:  g.WordGuessed,
+		VoteType:     g.VoteType,
+		Votes:        votes,
+		Winner:       g.Winner,
+		Reason:       g.Reason,
+	}
 }
