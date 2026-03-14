@@ -165,7 +165,7 @@
       <h2>遊戲結果</h2>
       <article class="glass card">
         <p class="winner">勝方: {{ winnerText }}</p>
-        <p>原因: <span class="mono">{{ result.reason || '-' }}</span></p>
+        <p>原因: <span class="mono">{{ resultReasonText }}</span></p>
         <p>咒語: <strong>{{ result.word || '-' }}</strong></p>
       </article>
       <article class="glass card">
@@ -267,6 +267,7 @@ const winnerText = computed(() => {
   if (result.winner === 'werewolves') return '狼人陣營'
   return '未定'
 })
+const resultReasonText = computed(() => formatReasonCode(result.reason || ''))
 
 const tokenStats = computed(() => [
   { key: 'yes', label: '是', className: 'yes', value: day.remaining.yes },
@@ -346,6 +347,9 @@ function handleMessage(msg) {
     case 'player_left':
       hydrateRoom(payload)
       view.value = 'waiting'
+      break
+    case 'player_reconnecting':
+      toast('player_reconnecting')
       break
     case 'role_assigned':
       myRole.value = payload.role || ''
@@ -431,7 +435,9 @@ function handleMessage(msg) {
           const session = loadSession()
           const canFallbackJoin = Boolean(session?.roomCode && session?.nickname)
           clearSession()
-          if (canFallbackJoin && !room.roomCode) {
+          if (canFallbackJoin) {
+            // Clear stale in-memory state before retrying a normal join flow.
+            resetToLobby()
             myNickname.value = session.nickname
             joinCode.value = session.roomCode
             scheduleResumeHint()
@@ -442,10 +448,12 @@ function handleMessage(msg) {
             if (!ok) {
               clearResumeHint()
               toast('reconnect_failed')
+              resetToLobby()
             }
           } else {
             clearResumeHint()
             toast('reconnect_failed')
+            resetToLobby()
           }
         } else {
           clearResumeHint()
@@ -663,14 +671,63 @@ function formatToastMessage(message) {
     return `連線中斷，正在重試（第 ${attempt} 次）`
   }
   switch (message) {
+    case 'invalid_message': return '收到無效訊息，請重新操作。'
+    case 'unsupported_message_type': return '不支援的操作。'
+    case 'invalid_payload': return '請求內容不完整，請重試。'
+    case 'invalid_nickname': return '暱稱格式不正確。'
     case 'session_resumed': return '已恢復上一局連線。'
     case 'session_retry_join': return '正在恢復連線...'
+    case 'player_reconnecting': return '有玩家正在重新連線，請稍候。'
     case 'nickname_required': return '請先輸入暱稱。'
     case 'room_code_required': return '請輸入房間代碼。'
     case 'socket_not_connected': return '尚未連線到伺服器。'
+    case 'room_not_found': return '找不到房間，請確認代碼。'
+    case 'room_full': return '房間已滿。'
+    case 'nickname_already_taken': return '此暱稱已被使用，請換一個。'
+    case 'player_not_found': return '找不到玩家資料，請重新加入。'
+    case 'host_only': return '只有房主可以執行這個操作。'
+    case 'not_enough_players': return '玩家人數不足，無法開始。'
+    case 'game_already_started': return '遊戲已開始。'
+    case 'game_not_found': return '目前沒有進行中的遊戲。'
+    case 'word_library_unavailable': return '詞庫暫時不可用，請稍後再試。'
+    case 'mayor_only': return '只有村長可以執行這個操作。'
+    case 'invalid_phase': return '目前階段無法執行此操作。'
+    case 'invalid_word': return '選擇的咒語無效。'
+    case 'mayor_must_pick_word': return '請先由村長選擇咒語。'
+    case 'token_exhausted': return '這個指示物已用完。'
+    case 'invalid_token': return '無效的指示物。'
     case 'not_eligible_voter': return '你不是此回合可投票的玩家。'
+    case 'already_voted': return '你已經投過票了。'
+    case 'cannot_vote_self': return '不能投給自己。'
+    case 'invalid_target': return '投票目標無效。'
+    case 'resume_room_not_found': return '原房間不存在，請重新加入。'
+    case 'resume_player_not_found': return '原連線不存在，正在重新加入。'
+    case 'resume_not_available': return '目前無法恢復連線，請重新加入。'
+    case 'resume_in_use': return '此連線已在其他裝置使用。'
+    case 'host_disconnected': return '房主已離線，房間已關閉。'
+    case 'room_closed': return '房間已關閉。'
+    case 'game_ended': return '本局已結束。'
+    case 'player_disconnected': return '有玩家斷線，遊戲已中止。'
     case 'reconnect_failed': return '重新連線失敗，已回到大廳。'
-    default: return message
+    default:
+      // Hide raw backend error codes in user-facing UI.
+      if (/^[a-z0-9_]+$/i.test(message)) {
+        return '操作失敗，請稍後再試。'
+      }
+      return message
+  }
+}
+
+function formatReasonCode(reason) {
+  switch (reason) {
+    case 'word_guessed_seer_found': return '猜中咒語後，狼人成功找出先知。'
+    case 'word_guessed_seer_safe': return '猜中咒語後，狼人未找出先知。'
+    case 'word_missed_wolf_caught': return '未猜中咒語，但村民成功抓到狼人。'
+    case 'word_missed_wolf_safe': return '未猜中咒語，狼人成功躲過投票。'
+    case 'player_disconnected': return '有玩家斷線未能及時重連。'
+    case 'host_disconnected': return '房主離線，房間已關閉。'
+    case 'game_ended': return '本局已結束。'
+    default: return reason || '-'
   }
 }
 

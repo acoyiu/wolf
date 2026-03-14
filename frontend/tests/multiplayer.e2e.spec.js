@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test'
 
+const RESULT_REASONS = [
+  '猜中咒語後，狼人成功找出先知。',
+  '猜中咒語後，狼人未找出先知。',
+  '未猜中咒語，但村民成功抓到狼人。',
+  '未猜中咒語，狼人成功躲過投票。',
+]
+
 async function openPlayer(browser, nickname) {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -87,65 +94,99 @@ async function clickNextIfVisible(page, timeout = 7000) {
   }
 }
 
+async function expectToast(page, text) {
+  const toast = page.locator('.toast')
+  await expect(toast).toBeVisible({ timeout: 10000 })
+  await expect(toast).toContainText(text)
+}
+
+async function setupFourPlayers(browser) {
+  const players = []
+  players.push(await openPlayer(browser, 'P1'))
+  players.push(await openPlayer(browser, 'P2'))
+  players.push(await openPlayer(browser, 'P3'))
+  players.push(await openPlayer(browser, 'P4'))
+
+  const host = players[0]
+  const others = players.slice(1)
+
+  await host.page.locator('input[type="number"]').fill('4')
+  await host.page.getByRole('button', { name: '建立' }).click()
+  await expect(host.page.getByRole('heading', { name: '等待室' })).toBeVisible()
+
+  const roomCode = (await host.page.locator('.code').innerText()).trim()
+  expect(roomCode).not.toHaveLength(0)
+
+  for (const player of others) {
+    await player.page.getByPlaceholder('AB3K').fill(roomCode)
+    await player.page.getByRole('button', { name: '加入' }).click()
+    await expect(player.page.getByRole('heading', { name: '等待室' })).toBeVisible()
+  }
+
+  await Promise.all(players.map((p) => expect(p.page.getByText('4/4 人')).toBeVisible()))
+
+  return { players, host, others, roomCode }
+}
+
+async function startAndReachNight(players, host) {
+  await host.page.getByRole('button', { name: '開始遊戲' }).click()
+  await Promise.all(
+    players.map((p) => expect(p.page.getByRole('heading', { name: '夜晚階段' })).toBeVisible({ timeout: 10000 })),
+  )
+
+  for (const player of players) {
+    player.roleInfo = await waitAndParseRole(player.page)
+  }
+}
+
+async function advanceNightToDay(players, host, others) {
+  for (const player of players) {
+    await expectNightStep1View(player, player === host)
+  }
+
+  const chosenWord = (await host.page.locator('.pill-grid .btn.pill').first().innerText()).trim()
+  expect(chosenWord).not.toHaveLength(0)
+  await host.page.locator('.pill-grid .btn.pill').first().click()
+
+  for (const player of others) {
+    await clickNextIfVisible(player.page)
+  }
+
+  for (const player of players) {
+    await expectNightStep2View(player, chosenWord)
+  }
+
+  for (const player of players) {
+    await clickNextIfVisible(player.page, 10000)
+  }
+
+  await Promise.all(
+    players.map((p) => expect(p.page.getByRole('heading', { name: '白天階段' })).toBeVisible({ timeout: 10000 })),
+  )
+
+  return chosenWord
+}
+
+async function assertLocalizedResultReason(players) {
+  for (const player of players) {
+    const reason = (
+      await player.page.locator('section:has(h2:has-text("遊戲結果")) article:has-text("原因:") .mono').first().innerText()
+    ).trim()
+    expect(RESULT_REASONS).toContain(reason)
+    expect(reason).not.toContain('_')
+  }
+}
+
 test('4 players can finish one round from lobby to result', async ({ browser }) => {
   const players = []
 
   try {
-    players.push(await openPlayer(browser, 'P1'))
-    players.push(await openPlayer(browser, 'P2'))
-    players.push(await openPlayer(browser, 'P3'))
-    players.push(await openPlayer(browser, 'P4'))
+    const setup = await setupFourPlayers(browser)
+    players.push(...setup.players)
+    const { host, others } = setup
 
-    const host = players[0]
-    const others = players.slice(1)
-
-    await host.page.locator('input[type="number"]').fill('4')
-    await host.page.getByRole('button', { name: '建立' }).click()
-    await expect(host.page.getByRole('heading', { name: '等待室' })).toBeVisible()
-
-    const roomCode = (await host.page.locator('.code').innerText()).trim()
-    expect(roomCode).not.toHaveLength(0)
-
-    for (const player of others) {
-      await player.page.getByPlaceholder('AB3K').fill(roomCode)
-      await player.page.getByRole('button', { name: '加入' }).click()
-      await expect(player.page.getByRole('heading', { name: '等待室' })).toBeVisible()
-    }
-
-    await Promise.all(players.map((p) => expect(p.page.getByText('4/4 人')).toBeVisible()))
-
-    await host.page.getByRole('button', { name: '開始遊戲' }).click()
-    await Promise.all(
-      players.map((p) => expect(p.page.getByRole('heading', { name: '夜晚階段' })).toBeVisible({ timeout: 10000 })),
-    )
-
-    for (const player of players) {
-      player.roleInfo = await waitAndParseRole(player.page)
-    }
-
-    for (const player of players) {
-      await expectNightStep1View(player, player === host)
-    }
-
-    const chosenWord = (await host.page.locator('.pill-grid .btn.pill').first().innerText()).trim()
-    expect(chosenWord).not.toHaveLength(0)
-    await host.page.locator('.pill-grid .btn.pill').first().click()
-
-    for (const player of others) {
-      await clickNextIfVisible(player.page)
-    }
-
-    for (const player of players) {
-      await expectNightStep2View(player, chosenWord)
-    }
-
-    for (const player of players) {
-      await clickNextIfVisible(player.page, 10000)
-    }
-
-    await Promise.all(
-      players.map((p) => expect(p.page.getByRole('heading', { name: '白天階段' })).toBeVisible({ timeout: 10000 })),
-    )
+    await startAndReachNight(players, host)
+    await advanceNightToDay(players, host, others)
 
     await expect(host.page.getByText('村長控制台')).toBeVisible()
     for (const player of others) {
@@ -172,7 +213,170 @@ test('4 players can finish one round from lobby to result', async ({ browser }) 
     await Promise.all(
       players.map((p) => expect(p.page.getByRole('heading', { name: '遊戲結果' })).toBeVisible({ timeout: 10000 })),
     )
+
+    await assertLocalizedResultReason(players)
   } finally {
     await Promise.all(players.map((p) => p.context.close()))
+  }
+})
+
+test('4 players can reach guess_wolf vote by day timeout and all can vote', async ({ browser }) => {
+  const players = []
+
+  try {
+    const setup = await setupFourPlayers(browser)
+    players.push(...setup.players)
+    const { host, others } = setup
+
+    await startAndReachNight(players, host)
+    await advanceNightToDay(players, host, others)
+
+    await Promise.all(
+      players.map((p) => expect(p.page.getByRole('heading', { name: '投票階段' })).toBeVisible({ timeout: 25000 })),
+    )
+    await Promise.all(
+      players.map((p) => expect(p.page.getByText('全體玩家投票找出狼人。')).toBeVisible({ timeout: 25000 })),
+    )
+
+    for (const player of players) {
+      await expect(player.page.getByText('此回合僅狼人需要投票，請等待。')).toHaveCount(0)
+      const voteButtons = player.page.locator('section:has(h2:has-text("投票階段")) .pill-grid button')
+      await expect(voteButtons.first()).toBeVisible()
+      await voteButtons.first().click()
+    }
+
+    await Promise.all(
+      players.map((p) => expect(p.page.getByRole('heading', { name: '遊戲結果' })).toBeVisible({ timeout: 10000 })),
+    )
+
+    await assertLocalizedResultReason(players)
+  } finally {
+    await Promise.all(players.map((p) => p.context.close()))
+  }
+})
+
+test('refresh during game resumes to role view and does not show raw resume code', async ({ browser }) => {
+  const players = []
+
+  try {
+    const setup = await setupFourPlayers(browser)
+    players.push(...setup.players)
+    const { host, others } = setup
+
+    await startAndReachNight(players, host)
+
+    const reloader = others[0]
+    await reloader.page.reload()
+    await expect(reloader.page.getByRole('heading', { name: '夜晚階段' })).toBeVisible({ timeout: 10000 })
+    await expect(reloader.page.locator('.role-display span')).not.toContainText('未知', { timeout: 10000 })
+    await expect(reloader.page.getByText(/resume_[a-z_]+/i)).toHaveCount(0)
+  } finally {
+    await Promise.all(players.map((p) => p.context.close()))
+  }
+})
+
+test('host leaves waiting room and other players are returned to lobby', async ({ browser }) => {
+  const players = []
+
+  try {
+    const setup = await setupFourPlayers(browser)
+    players.push(...setup.players)
+    const { host, others } = setup
+
+    await host.page.getByRole('button', { name: '離開' }).click()
+    await expect(host.page.getByRole('heading', { name: 'Wolfword' })).toBeVisible({ timeout: 10000 })
+
+    for (const player of others) {
+      await expect(player.page.getByRole('heading', { name: 'Wolfword' })).toBeVisible({ timeout: 10000 })
+      await expect(player.page.getByRole('heading', { name: '等待室' })).toHaveCount(0)
+      await expect(player.page.getByText(/resume_[a-z_]+/i)).toHaveCount(0)
+    }
+  } finally {
+    await Promise.all(players.map((p) => p.context.close()))
+  }
+})
+
+test('join room with duplicate nickname shows localized error and stays in lobby', async ({ browser }) => {
+  const players = []
+
+  try {
+    const host = await openPlayer(browser, 'DupName')
+    const joiner = await openPlayer(browser, 'DupName')
+    players.push(host, joiner)
+
+    await host.page.locator('input[type="number"]').fill('4')
+    await host.page.getByRole('button', { name: '建立' }).click()
+    await expect(host.page.getByRole('heading', { name: '等待室' })).toBeVisible()
+
+    const roomCode = (await host.page.locator('.code').innerText()).trim()
+    expect(roomCode).not.toHaveLength(0)
+
+    await joiner.page.getByPlaceholder('AB3K').fill(roomCode)
+    await joiner.page.getByRole('button', { name: '加入' }).click()
+
+    await expect(joiner.page.getByRole('heading', { name: 'Wolfword' })).toBeVisible({ timeout: 10000 })
+    await expect(joiner.page.getByRole('heading', { name: '等待室' })).toHaveCount(0)
+    await expectToast(joiner.page, '此暱稱已被使用，請換一個。')
+    await expect(joiner.page.getByText(/nickname_already_taken/i)).toHaveCount(0)
+  } finally {
+    await Promise.all(players.map((p) => p.context.close()))
+  }
+})
+
+test('join full room shows localized error and stays in lobby', async ({ browser }) => {
+  const players = []
+
+  try {
+    const setup = await setupFourPlayers(browser)
+    players.push(...setup.players)
+    const { roomCode } = setup
+
+    const extra = await openPlayer(browser, 'P5')
+    players.push(extra)
+
+    await extra.page.getByPlaceholder('AB3K').fill(roomCode)
+    await extra.page.getByRole('button', { name: '加入' }).click()
+
+    await expect(extra.page.getByRole('heading', { name: 'Wolfword' })).toBeVisible({ timeout: 10000 })
+    await expect(extra.page.getByRole('heading', { name: '等待室' })).toHaveCount(0)
+    await expectToast(extra.page, '房間已滿。')
+    await expect(extra.page.getByText(/room_full/i)).toHaveCount(0)
+  } finally {
+    await Promise.all(players.map((p) => p.context.close()))
+  }
+})
+
+test('in-game disconnect shows reconnecting notice to remaining players', async ({ browser }) => {
+  const players = []
+
+  try {
+    const setup = await setupFourPlayers(browser)
+    players.push(...setup.players)
+    const { host, others } = setup
+
+    await startAndReachNight(players, host)
+
+    const disconnected = others[0]
+    const remaining = [host, ...others.slice(1)]
+
+    await disconnected.context.close()
+
+    await Promise.all(
+      remaining.map((player) =>
+        expect(player.page.getByText('有玩家正在重新連線，請稍候。')).toBeVisible({ timeout: 10000 }),
+      ),
+    )
+  } finally {
+    await Promise.all(
+      players
+        .filter((p) => p.context)
+        .map(async (p) => {
+          try {
+            await p.context.close()
+          } catch {
+            // Ignore contexts that were already closed in test flow.
+          }
+        }),
+    )
   }
 })

@@ -18,7 +18,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm --prefix frontend run build && PORT=4173 DAY_TIMEOUT_SEC=20 VOTE_TIMEOUT_SEC=20 go run main.go',
+    command: 'npm --prefix frontend run build && PORT=4173 DAY_TIMEOUT_SEC=8 VOTE_TIMEOUT_SEC=8 go run main.go',
     cwd: path.resolve(currentDir, '..'),
     url: 'http://127.0.0.1:4173/healthz',
     reuseExistingServer: !process.env.CI,
