@@ -186,3 +186,135 @@ func TestRoomCodeAvoidConfusingChars(t *testing.T) {
 		}
 	}
 }
+
+// --- Additional edge-case tests ---
+
+func TestCreateRoomInvalidTargetPlayersTooLow(t *testing.T) {
+	m := NewManager()
+	_, err := m.CreateRoom("p1", "Alice", 3)
+	if err == nil {
+		t.Fatal("expected error for targetPlayers < 4")
+	}
+}
+
+func TestCreateRoomInvalidTargetPlayersTooHigh(t *testing.T) {
+	m := NewManager()
+	_, err := m.CreateRoom("p1", "Alice", 11)
+	if err == nil {
+		t.Fatal("expected error for targetPlayers > 10")
+	}
+}
+
+func TestJoinRoomGameAlreadyStarted(t *testing.T) {
+	m := NewManager()
+	room, _ := m.CreateRoom("p1", "Alice", 4)
+	m.JoinRoom(room.Code, "p2", "Bob")
+	m.JoinRoom(room.Code, "p3", "Carol")
+	m.JoinRoom(room.Code, "p4", "Dave")
+	m.StartGame(room.Code, "p1")
+
+	_, err := m.JoinRoom(room.Code, "p5", "Eve")
+	if err == nil || err.Error() != "game_already_started" {
+		t.Fatalf("expected game_already_started, got %v", err)
+	}
+}
+
+func TestLeaveRoomNotFound(t *testing.T) {
+	m := NewManager()
+	_, _, err := m.LeaveRoom("ZZZZ", "p1")
+	if err == nil || err.Error() != "room_not_found" {
+		t.Fatalf("expected room_not_found, got %v", err)
+	}
+}
+
+func TestLeaveRoomPlayerNotFound(t *testing.T) {
+	m := NewManager()
+	room, _ := m.CreateRoom("p1", "Alice", 6)
+	_, _, err := m.LeaveRoom(room.Code, "nonexistent")
+	if err == nil || err.Error() != "player_not_found" {
+		t.Fatalf("expected player_not_found, got %v", err)
+	}
+}
+
+func TestStartGameRoomNotFound(t *testing.T) {
+	m := NewManager()
+	_, err := m.StartGame("ZZZZ", "p1")
+	if err == nil || err.Error() != "room_not_found" {
+		t.Fatalf("expected room_not_found, got %v", err)
+	}
+}
+
+func TestHandleDisconnectNonHost(t *testing.T) {
+	m := NewManager()
+	room, _ := m.CreateRoom("p1", "Alice", 6)
+	code := room.Code
+	isHost := m.HandleDisconnect(code, "p2")
+	if isHost {
+		t.Fatal("expected isHost=false for non-host disconnect")
+	}
+	_, ok := m.GetRoom(code)
+	if !ok {
+		t.Fatal("room should still exist after non-host disconnect")
+	}
+}
+
+func TestHandleDisconnectRoomNotFound(t *testing.T) {
+	m := NewManager()
+	isHost := m.HandleDisconnect("ZZZZ", "p1")
+	if isHost {
+		t.Fatal("expected isHost=false for nonexistent room")
+	}
+}
+
+func TestPlayerIDsAndPlayerCount(t *testing.T) {
+	m := NewManager()
+	room, _ := m.CreateRoom("p1", "Alice", 6)
+	m.JoinRoom(room.Code, "p2", "Bob")
+	m.JoinRoom(room.Code, "p3", "Carol")
+
+	ids := room.PlayerIDs()
+	if len(ids) != 3 {
+		t.Fatalf("PlayerIDs len=%d want 3", len(ids))
+	}
+	if room.PlayerCount() != 3 {
+		t.Fatalf("PlayerCount=%d want 3", room.PlayerCount())
+	}
+	// Verify IDs match
+	expected := map[string]bool{"p1": true, "p2": true, "p3": true}
+	for _, id := range ids {
+		if !expected[id] {
+			t.Fatalf("unexpected player ID: %s", id)
+		}
+	}
+}
+
+func TestRemoveRoom(t *testing.T) {
+	m := NewManager()
+	room, _ := m.CreateRoom("p1", "Alice", 4)
+	code := room.Code
+	m.RemoveRoom(code)
+	_, ok := m.GetRoom(code)
+	if ok {
+		t.Fatal("room should be deleted after RemoveRoom")
+	}
+}
+
+func TestCreateRoomBoundaryValues(t *testing.T) {
+	m := NewManager()
+	// Min boundary
+	room, err := m.CreateRoom("p1", "Alice", MinPlayers)
+	if err != nil {
+		t.Fatalf("unexpected error at min boundary: %v", err)
+	}
+	if room.TargetPlayers != MinPlayers {
+		t.Fatalf("targetPlayers=%d want %d", room.TargetPlayers, MinPlayers)
+	}
+	// Max boundary
+	room2, err := m.CreateRoom("p2", "Bob", MaxPlayers)
+	if err != nil {
+		t.Fatalf("unexpected error at max boundary: %v", err)
+	}
+	if room2.TargetPlayers != MaxPlayers {
+		t.Fatalf("targetPlayers=%d want %d", room2.TargetPlayers, MaxPlayers)
+	}
+}

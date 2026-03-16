@@ -411,3 +411,232 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 		}
 	}
 }
+
+func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
+	// Use short day timeout so the test doesn't wait long.
+	h := NewHub(2*time.Second, 5*time.Second)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", h.HandleWS)
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+
+	bots := []*wsBot{
+		newWSBot(t, wsURL, "A1"),
+		newWSBot(t, wsURL, "A2"),
+		newWSBot(t, wsURL, "A3"),
+		newWSBot(t, wsURL, "A4"),
+	}
+	defer func() {
+		for _, b := range bots {
+			b.Close()
+		}
+	}()
+
+	host := bots[0]
+	host.Send(t, "create_room", map[string]interface{}{
+		"nickname":      host.nickname,
+		"targetPlayers": 4,
+		"difficulty":    "easy",
+	})
+
+	waitUntil(t, 3*time.Second, "host room created", func() bool {
+		return host.RoomCode() != ""
+	})
+	roomCode := host.RoomCode()
+
+	for i := 1; i < len(bots); i++ {
+		bots[i].Send(t, "join_room", map[string]interface{}{
+			"roomCode": roomCode,
+			"nickname": bots[i].nickname,
+		})
+	}
+
+	waitUntil(t, 3*time.Second, "all players joined", func() bool {
+		for _, b := range bots {
+			if b.RoomCode() != roomCode || b.PlayersCount() != 4 {
+				return false
+			}
+		}
+		return true
+	})
+
+	host.Send(t, "start_game", map[string]interface{}{})
+
+	waitUntil(t, 3*time.Second, "roles assigned", func() bool {
+		for _, b := range bots {
+			if b.Role() == "" {
+				return false
+			}
+		}
+		return true
+	})
+
+	waitUntil(t, 3*time.Second, "mayor candidate words", func() bool {
+		return host.NightStep() == 1 && len(host.Candidates()) >= 1
+	})
+
+	chosenWord := host.Candidates()[0]
+	host.Send(t, "night_pick_word", map[string]interface{}{"word": chosenWord})
+
+	for i := 1; i < len(bots); i++ {
+		bots[i].Send(t, "night_confirm", map[string]interface{}{})
+	}
+
+	waitUntil(t, 3*time.Second, "night step 2 started", func() bool {
+		return host.NightStep() == 2 || host.Phase() == "day"
+	})
+
+	for i := 0; i < len(bots); i++ {
+		bots[i].Send(t, "night_confirm", map[string]interface{}{})
+	}
+
+	waitUntil(t, 3*time.Second, "day phase started", func() bool {
+		for _, b := range bots {
+			if b.Phase() != "day" {
+				return false
+			}
+		}
+		return true
+	})
+
+	// Do NOT send "correct" token. Let the day timer expire (2s).
+	waitUntil(t, 10*time.Second, "vote phase via timeout", func() bool {
+		for _, b := range bots {
+			if b.Phase() != "vote" {
+				return false
+			}
+		}
+		return true
+	})
+
+	// Verify it's guess_wolf vote type
+	for _, b := range bots {
+		if b.VoteType() != "guess_wolf" {
+			t.Fatalf("bot %s voteType=%s want guess_wolf", b.nickname, b.VoteType())
+		}
+	}
+
+	// In guess_wolf, all players can vote.
+	ids := make([]string, 0, len(bots))
+	for _, b := range bots {
+		ids = append(ids, b.PlayerID())
+	}
+	for _, b := range bots {
+		target := pickOther(ids, b.PlayerID())
+		b.Send(t, "vote_cast", map[string]interface{}{"target": target})
+	}
+
+	waitUntil(t, 5*time.Second, "game over", func() bool {
+		for _, b := range bots {
+			if !b.GameOver() {
+				return false
+			}
+		}
+		return true
+	})
+
+	for _, b := range bots {
+		if errMsg := b.LastError(); errMsg != "" {
+			t.Fatalf("bot %s received unexpected error: %s", b.nickname, errMsg)
+		}
+	}
+}
+
+func TestHubSmokeResumeSession(t *testing.T) {
+	h := NewHub(30*time.Second, 30*time.Second)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", h.HandleWS)
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+
+	bots := []*wsBot{
+		newWSBot(t, wsURL, "R1"),
+		newWSBot(t, wsURL, "R2"),
+		newWSBot(t, wsURL, "R3"),
+		newWSBot(t, wsURL, "R4"),
+	}
+	defer func() {
+		for _, b := range bots {
+			b.Close()
+		}
+	}()
+
+	host := bots[0]
+	host.Send(t, "create_room", map[string]interface{}{
+		"nickname":      host.nickname,
+		"targetPlayers": 4,
+		"difficulty":    "easy",
+	})
+
+	waitUntil(t, 3*time.Second, "host room created", func() bool {
+		return host.RoomCode() != ""
+	})
+	roomCode := host.RoomCode()
+
+	for i := 1; i < len(bots); i++ {
+		bots[i].Send(t, "join_room", map[string]interface{}{
+			"roomCode": roomCode,
+			"nickname": bots[i].nickname,
+		})
+	}
+
+	waitUntil(t, 3*time.Second, "all players joined", func() bool {
+		for _, b := range bots {
+			if b.RoomCode() != roomCode || b.PlayersCount() != 4 {
+				return false
+			}
+		}
+		return true
+	})
+
+	host.Send(t, "start_game", map[string]interface{}{})
+
+	waitUntil(t, 3*time.Second, "roles assigned", func() bool {
+		for _, b := range bots {
+			if b.Role() == "" {
+				return false
+			}
+		}
+		return true
+	})
+
+	// Save disconnecting player's info
+	disconnected := bots[1]
+	savedPlayerID := disconnected.PlayerID()
+	savedRole := disconnected.Role()
+
+	// Disconnect the player
+	_ = disconnected.conn.Close()
+	<-disconnected.done
+
+	// Wait a moment for the server to notice the disconnect
+	time.Sleep(500 * time.Millisecond)
+
+	// Reconnect with new WebSocket and resume session
+	resumed := newWSBot(t, wsURL, "R2_new")
+	defer resumed.Close()
+
+	resumed.Send(t, "resume_session", map[string]interface{}{
+		"playerId": savedPlayerID,
+		"roomCode": roomCode,
+		"nickname": "R2",
+	})
+
+	// The bot should receive its role back
+	waitUntil(t, 5*time.Second, "resumed bot gets role", func() bool {
+		return resumed.Role() != ""
+	})
+
+	if resumed.Role() != savedRole {
+		t.Fatalf("resumed role=%s want %s", resumed.Role(), savedRole)
+	}
+
+	// Replace the old bot reference so we can clean up
+	bots[1] = resumed
+}

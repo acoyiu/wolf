@@ -37,6 +37,9 @@ type Client struct {
 	BaseURL  string
 	Conn     *websocket.Conn
 	Send     chan OutEnvelope
+
+	once   sync.Once
+	closed chan struct{}
 }
 
 type Hub struct {
@@ -99,6 +102,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		BaseURL: baseURLFromRequest(r),
 		Conn:    conn,
 		Send:    make(chan OutEnvelope, 32),
+		closed:  make(chan struct{}),
 	}
 
 	h.mu.Lock()
@@ -542,7 +546,15 @@ func (h *Hub) deliverGameOut(code string, m game.OutMsg) {
 
 func (h *Hub) sendToClient(client *Client, typ string, payload interface{}) {
 	select {
+	case <-client.closed:
+		// Client already shut down; drop the message.
+		return
+	default:
+	}
+	select {
 	case client.Send <- OutEnvelope{Type: typ, Payload: payload}:
+	case <-client.closed:
+		// Client closed while we were waiting; drop the message.
 	default:
 		// Drop message if the send buffer is full to avoid blocking the hub.
 	}
@@ -580,7 +592,10 @@ func (h *Hub) handleDisconnect(client *Client) {
 	}
 	h.mu.Unlock()
 
-	close(client.Send)
+	client.once.Do(func() {
+		close(client.closed)
+		close(client.Send)
+	})
 
 	if code == "" {
 		return
