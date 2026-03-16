@@ -485,11 +485,14 @@ function generateParticles(phase) {
       color: 'rgba(255,255,255,0.6)',
     }
     if (phase === 'night') {
-      p.color = `rgba(${160 + Math.random() * 80}, ${140 + Math.random() * 60}, 255, ${0.4 + Math.random() * 0.4})`
+      // Purple-blue torch sparks
+      p.color = `rgba(${120 + Math.random() * 60}, ${80 + Math.random() * 40}, ${180 + Math.random() * 75}, ${0.4 + Math.random() * 0.4})`
     } else if (phase === 'day') {
-      p.color = `rgba(255, ${180 + Math.random() * 60}, ${60 + Math.random() * 60}, ${0.3 + Math.random() * 0.4})`
+      // Warm golden embers / dust motes
+      p.color = `rgba(${220 + Math.random() * 35}, ${160 + Math.random() * 60}, ${40 + Math.random() * 40}, ${0.3 + Math.random() * 0.4})`
     } else if (phase === 'result') {
-      p.color = `rgba(255, ${200 + Math.random() * 55}, ${80 + Math.random() * 80}, ${0.4 + Math.random() * 0.4})`
+      // Gold celebration sparks
+      p.color = `rgba(255, ${180 + Math.random() * 55}, ${40 + Math.random() * 50}, ${0.5 + Math.random() * 0.4})`
     }
     list.push(p)
   }
