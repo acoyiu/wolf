@@ -529,8 +529,10 @@ func (g *Game) CastVote(voterID, targetID string) ([]OutMsg, error) {
 	msgs := []OutMsg{{
 		Type: "vote_cast",
 		Payload: map[string]interface{}{
-			"voter":  voterID,
-			"target": targetID,
+			"voter":       voterID,
+			"target":      targetID,
+			"votedCount":  len(g.Votes),
+			"totalVoters": len(g.eligibleVoters()),
 		},
 	}}
 
@@ -663,6 +665,10 @@ func (g *Game) gameOverMsg() OutMsg {
 			roles[id] = string(g.Roles[id])
 		}
 	}
+	votes := make(map[string]string, len(g.Votes))
+	for k, v := range g.Votes {
+		votes[k] = v
+	}
 	return OutMsg{
 		Type: "game_over",
 		Payload: map[string]interface{}{
@@ -671,6 +677,7 @@ func (g *Game) gameOverMsg() OutMsg {
 			"word":        g.Word,
 			"roles":       roles,
 			"mayorSecret": string(g.MayorSecret),
+			"votes":       votes,
 		},
 	}
 }

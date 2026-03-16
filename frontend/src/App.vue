@@ -91,9 +91,9 @@
 
     <section class="panel" v-if="view === 'night'">
       <h2>夜晚階段</h2>
-      <p class="role-display">
-        <component v-if="roleIconMap[effectiveRole]" :is="roleIconMap[effectiveRole]" :size="40" />
-        角色: <span>{{ roleText }}</span>
+      <p class="role-badge">
+        <component v-if="roleIconMap[effectiveRole]" :is="roleIconMap[effectiveRole]" :size="24" />
+        <span>{{ roleText }}</span>
       </p>
 
       <article class="glass card" v-if="night.step === 1 && isHost">
@@ -112,7 +112,7 @@
       </article>
 
       <article class="glass card" v-else>
-        <p>請點擊下一步，保持全員同步。</p>
+        <p class="night-flavor">{{ nightFlavorText }}</p>
         <button class="btn" @click="nightConfirm" :disabled="nightConfirmed">{{ nightConfirmed ? '已確認' : '下一步' }}</button>
         <p class="label" v-if="nightConfirmed">等待其他玩家...</p>
       </article>
@@ -121,8 +121,20 @@
     <section class="panel" v-if="view === 'day'">
       <div class="panel-head">
         <h2>白天階段</h2>
-        <p>請口頭提問，由村長用指示物回應。</p>
+        <div class="timer-display" v-if="timer.remainingMs > 0">
+          <span class="timer-icon">⏱</span>
+          <span class="timer-value" :class="{ 'timer-urgent': timer.remainingMs <= 30000 }">{{ formatTimer(timer.remainingMs) }}</span>
+        </div>
       </div>
+      <p class="role-badge">
+        <component v-if="roleIconMap[effectiveRole]" :is="roleIconMap[effectiveRole]" :size="20" />
+        <span>{{ roleText }}</span>
+      </p>
+
+      <p class="label turn-hint" v-if="daySpeakerIdx >= 0">
+        提問順序: <strong>{{ room.players[daySpeakerIdx]?.nickname }}</strong>
+        <button class="btn-inline" @click="advanceSpeaker" v-if="isHost">下一位</button>
+      </p>
 
       <article class="glass card" v-if="isHost">
         <p class="label">村長控制台</p>
@@ -137,7 +149,11 @@
       </article>
 
       <article class="glass card">
-        <p class="label">剩餘數量</p>
+        <p class="label">指示物摘要</p>
+        <div class="token-summary">
+          <span v-for="item in tokenSummaryItems" :key="item.key" class="chip token-chip" :class="`token ${item.className}`">{{ item.label }} ×{{ item.value }}</span>
+        </div>
+        <p class="label" style="margin-top:0.5rem">剩餘數量</p>
         <div class="token-grid token-dashboard">
           <div class="token-stat" :class="`token ${item.className}`" v-for="item in tokenStats" :key="item.key">
             <span>{{ item.label }}</span>
@@ -153,8 +169,19 @@
     </section>
 
     <section class="panel" v-if="view === 'vote'">
-      <h2>投票階段</h2>
+      <div class="panel-head">
+        <h2>投票階段</h2>
+        <div class="timer-display" v-if="timer.remainingMs > 0">
+          <span class="timer-icon">⏱</span>
+          <span class="timer-value" :class="{ 'timer-urgent': timer.remainingMs <= 15000 }">{{ formatTimer(timer.remainingMs) }}</span>
+        </div>
+      </div>
+      <p class="role-badge">
+        <component v-if="roleIconMap[effectiveRole]" :is="roleIconMap[effectiveRole]" :size="20" />
+        <span>{{ roleText }}</span>
+      </p>
       <p>{{ votePrompt }}</p>
+      <p class="label vote-progress" v-if="voteProgress.total > 0">已投票: {{ voteProgress.voted }} / {{ voteProgress.total }}</p>
       <p class="label" v-if="!canVoteInCurrentMode">此回合僅狼人需要投票，請等待。</p>
       <div class="pill-grid" v-if="canVoteInCurrentMode">
         <button class="btn pill" v-for="p in voteCandidates" :key="p.id" @click="castVote(p.id)" :disabled="votedFor === p.id">
@@ -183,7 +210,20 @@
           </li>
         </ul>
       </article>
-      <p class="label" style="text-align:center;margin-top:1rem;">請刷新頁面以重啓遊戲</p>
+      <article class="glass card" v-if="hasVoteData">
+        <p class="label">投票明細</p>
+        <ul class="players">
+          <li v-for="p in room.players" :key="'vote-'+p.id">
+            <span>{{ p.nickname }}</span>
+            <span class="mono" v-if="result.votes[p.id]">→ {{ nameById(result.votes[p.id]) }}</span>
+            <span class="mono muted-text" v-else>—</span>
+          </li>
+        </ul>
+      </article>
+      <div class="actions" style="justify-content:center">
+        <button class="btn primary" @click="playAgain" v-if="isHost">再來一局</button>
+        <p class="label" v-else style="text-align:center">等待房主開始下一局...</p>
+      </div>
     </section>
 
     <transition name="toast">
@@ -193,7 +233,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, onBeforeUnmount } from 'vue'
 import QRCode from 'qrcode'
 import { useSocket } from './composables/useSocket'
 import RoleWerewolf from './icons/RoleWerewolf.vue'
@@ -224,6 +264,7 @@ const votedFor = ref('')
 const voteMode = ref('guess_wolf')
 const nightConfirmed = ref(false)
 const selectedWord = ref('')
+const daySpeakerIdx = ref(-1)
 
 const room = reactive({
   roomCode: '',
@@ -242,12 +283,25 @@ const day = reactive({
   history: [],
 })
 
+const timer = reactive({
+  phase: '',
+  remainingMs: 0,
+})
+let timerIntervalId = 0
+let timerTargetTime = 0
+
+const voteProgress = reactive({
+  voted: 0,
+  total: 0,
+})
+
 const result = reactive({
   winner: '',
   reason: '',
   word: '',
   roles: {},
   mayorSecret: '',
+  votes: {},
 })
 
 const wsUrl = () => {
@@ -275,12 +329,18 @@ const effectiveRole = computed(() => (myRole.value === 'mayor' ? (mayorSecret.va
 const voteCandidates = computed(() => room.players.filter((p) => p.id !== playerId.value))
 const votePrompt = computed(() => (voteMode.value === 'guess_seer' ? '狼人正在投票指認先知。' : '全體玩家投票找出狼人。'))
 const canVoteInCurrentMode = computed(() => (voteMode.value !== 'guess_seer' ? true : effectiveRole.value === 'werewolf'))
+const hasVoteData = computed(() => result.votes && Object.keys(result.votes).length > 0)
 const winnerText = computed(() => {
   if (result.winner === 'villagers') return '村民陣營'
   if (result.winner === 'werewolves') return '狼人陣營'
   return '未定'
 })
 const resultReasonText = computed(() => formatReasonCode(result.reason || ''))
+
+const nightFlavorText = computed(() => {
+  if (night.step === 1) return '夜幕降臨…村長正在選擇祕密咒語，請耐心等待。'
+  return '知情者正在確認咒語…請閉上眼睛，保持安靜。'
+})
 
 const tokenStats = computed(() => [
   { key: 'yes', label: '是', className: 'yes', value: day.remaining.yes },
@@ -290,6 +350,26 @@ const tokenStats = computed(() => [
   { key: 'far', label: '差太多', className: 'far', value: day.remaining.far },
   { key: 'correct', label: '正確', className: 'correct', value: day.remaining.correct },
 ])
+
+const tokenSummaryItems = computed(() => {
+  const used = {}
+  for (const token of day.history) {
+    used[token] = (used[token] || 0) + 1
+  }
+  const items = []
+  const order = ['yes', 'no', 'maybe', 'close', 'far', 'correct']
+  const labels = { yes: '是', no: '否', maybe: '或許', close: '接近', far: '差太多', correct: '正確' }
+  for (const key of order) {
+    if (used[key]) {
+      items.push({ key, label: labels[key], className: key, value: used[key] })
+    }
+  }
+  return items
+})
+
+onBeforeUnmount(() => {
+  stopLocalTimer()
+})
 
 watch(shareUrl, async (value) => {
   if (!value) {
@@ -355,17 +435,20 @@ function handleMessage(msg) {
     case 'room_state':
       hydrateRoom(payload)
       view.value = 'waiting'
+      resetGameState()
       break
     case 'player_joined':
     case 'player_left':
       hydrateRoom(payload)
-      view.value = 'waiting'
+      if (view.value !== 'night' && view.value !== 'day' && view.value !== 'vote' && view.value !== 'result') {
+        view.value = 'waiting'
+      }
       break
     case 'player_reconnecting':
-      toast('player_reconnecting')
+      toast(formatReconnecting(payload))
       break
     case 'player_reconnected':
-      toast('player_reconnected')
+      toast(formatReconnected(payload))
       break
     case 'role_assigned':
       myRole.value = payload.role || ''
@@ -380,6 +463,7 @@ function handleMessage(msg) {
       night.revealWord = ''
       nightConfirmed.value = false
       selectedWord.value = ''
+      hapticFeedback('phase')
       break
     case 'night_reveal':
       view.value = 'night'
@@ -387,6 +471,7 @@ function handleMessage(msg) {
       night.revealWord = payload.word || ''
       nightConfirmed.value = false
       selectedWord.value = ''
+      hapticFeedback('reveal')
       break
     case 'phase_change':
       if (payload.phase === 'day') {
@@ -394,7 +479,12 @@ function handleMessage(msg) {
         day.history = []
         nightConfirmed.value = false
         selectedWord.value = ''
+        initSpeakerOrder()
+        hapticFeedback('phase')
       }
+      break
+    case 'timer_sync':
+      syncTimer(payload)
       break
     case 'day_state':
       if (payload.remaining) {
@@ -409,15 +499,22 @@ function handleMessage(msg) {
       if (payload.remaining) {
         day.remaining = payload.remaining
       }
+      hapticFeedback('token')
       break
     case 'word_guessed':
       voteMode.value = 'guess_seer'
+      voteProgress.voted = 0
+      voteProgress.total = 0
       view.value = 'vote'
+      hapticFeedback('phase')
       break
     case 'time_up':
     case 'tokens_depleted':
       voteMode.value = 'guess_wolf'
+      voteProgress.voted = 0
+      voteProgress.total = 0
       view.value = 'vote'
+      hapticFeedback('phase')
       break
     case 'vote_state':
       voteMode.value = payload.voteType === 'guess_seer' ? 'guess_seer' : 'guess_wolf'
@@ -425,6 +522,11 @@ function handleMessage(msg) {
       view.value = 'vote'
       break
     case 'vote_cast':
+      if (typeof payload.votedCount === 'number') {
+        voteProgress.voted = payload.votedCount
+        voteProgress.total = payload.totalVoters || 0
+      }
+      hapticFeedback('token')
       break
     case 'vote_result':
       break
@@ -434,8 +536,11 @@ function handleMessage(msg) {
       result.word = payload.word || ''
       result.roles = payload.roles || {}
       result.mayorSecret = payload.mayorSecret || ''
+      result.votes = payload.votes || {}
       view.value = 'result'
+      stopLocalTimer()
       clearSession()
+      hapticFeedback('result')
       break
     case 'game_aborted':
       toast(payload.reason || 'game_aborted')
@@ -520,6 +625,10 @@ function leaveRoom() {
 
 function startGame() {
   emit('start_game', {})
+}
+
+function playAgain() {
+  emit('play_again', {})
 }
 
 function pickWord(word) {
@@ -669,6 +778,90 @@ function nameById(id) {
   return found ? found.nickname : id
 }
 
+function formatReconnecting(payload) {
+  const name = payload?.nickname || nameById(payload?.playerId || '')
+  if (name && name !== payload?.playerId) {
+    return `${name} 正在重新連線，請稍候。`
+  }
+  return '有玩家正在重新連線，請稍候。'
+}
+
+function formatReconnected(payload) {
+  const name = payload?.nickname || nameById(payload?.playerId || '')
+  if (name && name !== payload?.playerId) {
+    return `${name} 已重新連線。`
+  }
+  return '玩家已重新連線。'
+}
+
+function syncTimer(payload) {
+  const ms = Number(payload.remainingMs) || 0
+  timer.phase = payload.phase || ''
+  timer.remainingMs = ms
+  timerTargetTime = Date.now() + ms
+  stopLocalTimer()
+  if (ms > 0) {
+    timerIntervalId = window.setInterval(() => {
+      const remaining = Math.max(0, timerTargetTime - Date.now())
+      timer.remainingMs = remaining
+      if (remaining <= 0) {
+        stopLocalTimer()
+      }
+    }, 250)
+  }
+}
+
+function stopLocalTimer() {
+  if (timerIntervalId) {
+    window.clearInterval(timerIntervalId)
+    timerIntervalId = 0
+  }
+}
+
+function formatTimer(ms) {
+  const totalSec = Math.ceil(ms / 1000)
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return `${min}:${String(sec).padStart(2, '0')}`
+}
+
+function initSpeakerOrder() {
+  if (room.players.length > 0) {
+    const hostIdx = room.players.findIndex((p) => p.isHost)
+    daySpeakerIdx.value = hostIdx >= 0 ? (hostIdx + 1) % room.players.length : 0
+  } else {
+    daySpeakerIdx.value = -1
+  }
+}
+
+function advanceSpeaker() {
+  if (room.players.length === 0) return
+  daySpeakerIdx.value = (daySpeakerIdx.value + 1) % room.players.length
+}
+
+function hapticFeedback(type) {
+  try {
+    if (navigator.vibrate) {
+      switch (type) {
+        case 'phase':
+          navigator.vibrate([100, 50, 100])
+          break
+        case 'reveal':
+          navigator.vibrate([200])
+          break
+        case 'token':
+          navigator.vibrate([50])
+          break
+        case 'result':
+          navigator.vibrate([100, 80, 100, 80, 200])
+          break
+      }
+    }
+  } catch {
+    // Vibration API not available
+  }
+}
+
 function toast(message) {
   const text = formatToastMessage(message)
   toastText.value = text
@@ -710,8 +903,6 @@ function formatToastMessage(message) {
     case 'invalid_nickname': return '暱稱格式不正確。'
     case 'session_resumed': return '已恢復上一局連線。'
     case 'session_retry_join': return '正在恢復連線...'
-    case 'player_reconnecting': return '有玩家正在重新連線，請稍候。'
-    case 'player_reconnected': return '玩家已重新連線。'
     case 'nickname_required': return '請先輸入暱稱。'
     case 'room_code_required': return '請輸入房間代碼。'
     case 'socket_not_connected': return '尚未連線到伺服器。'
@@ -744,7 +935,6 @@ function formatToastMessage(message) {
     case 'player_disconnected': return '有玩家斷線，遊戲已中止。'
     case 'reconnect_failed': return '重新連線失敗，已回到大廳。'
     default:
-      // Hide raw backend error codes in user-facing UI.
       if (/^[a-z0-9_]+$/i.test(message)) {
         return '操作失敗，請稍後再試。'
       }
@@ -765,15 +955,7 @@ function formatReasonCode(reason) {
   }
 }
 
-function resetToLobby() {
-  clearResumeHint()
-  clearSession()
-  view.value = 'lobby'
-  room.roomCode = ''
-  room.targetPlayers = 0
-  room.players = []
-  shareUrl.value = ''
-  qrDataUrl.value = ''
+function resetGameState() {
   votedFor.value = ''
   voteMode.value = 'guess_wolf'
   myRole.value = ''
@@ -790,5 +972,24 @@ function resetToLobby() {
   result.word = ''
   result.roles = {}
   result.mayorSecret = ''
+  result.votes = {}
+  voteProgress.voted = 0
+  voteProgress.total = 0
+  daySpeakerIdx.value = -1
+  stopLocalTimer()
+  timer.phase = ''
+  timer.remainingMs = 0
+}
+
+function resetToLobby() {
+  clearResumeHint()
+  clearSession()
+  view.value = 'lobby'
+  room.roomCode = ''
+  room.targetPlayers = 0
+  room.players = []
+  shareUrl.value = ''
+  qrDataUrl.value = ''
+  resetGameState()
 }
 </script>

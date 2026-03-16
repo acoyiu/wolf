@@ -64,6 +64,8 @@ type Hub struct {
 type roomTimer struct {
 	dayCancel  chan struct{}
 	voteCancel chan struct{}
+	dayStart   time.Time
+	voteStart  time.Time
 }
 
 type pendingReconnect struct {
@@ -170,6 +172,8 @@ func (h *Hub) dispatch(client *Client, in Envelope) {
 		h.handleDayToken(client, in.Payload)
 	case "vote_cast":
 		h.handleVoteCast(client, in.Payload)
+	case "play_again":
+		h.handlePlayAgain(client)
 	case "ping":
 		h.sendToClient(client, "pong", map[string]interface{}{})
 	default:
@@ -528,6 +532,39 @@ func (h *Hub) handleVoteCast(client *Client, raw json.RawMessage) {
 	h.scheduleIfPhaseTransitioned(code, g)
 }
 
+func (h *Hub) handlePlayAgain(client *Client) {
+	code := client.RoomCode
+	if code == "" {
+		h.sendError(client, "room_not_found")
+		return
+	}
+	h.mu.RLock()
+	g := h.games[code]
+	h.mu.RUnlock()
+	if g == nil || g.Snapshot().Phase != game.PhaseResult {
+		h.sendError(client, "invalid_phase")
+		return
+	}
+
+	rm, err := h.roomManager.ResetToWaiting(code, client.ID)
+	if err != nil {
+		h.sendError(client, err.Error())
+		return
+	}
+	snap := rm.Snapshot()
+
+	h.mu.Lock()
+	delete(h.games, code)
+	h.mu.Unlock()
+
+	h.broadcastRoom(code, "room_state", map[string]interface{}{
+		"roomCode":      snap.Code,
+		"targetPlayers": snap.TargetPlayers,
+		"players":       snap.Players,
+		"canStart":      len(snap.Players) >= snap.TargetPlayers,
+	})
+}
+
 func (h *Hub) scheduleIfPhaseTransitioned(code string, g *game.Game) {
 	switch g.Snapshot().Phase {
 	case game.PhaseDay:
@@ -638,7 +675,7 @@ func (h *Hub) handleDisconnect(client *Client) {
 	h.mu.RUnlock()
 	if g != nil && g.Snapshot().Phase != game.PhaseResult {
 		h.beginReconnectGrace(client.ID, client.Nickname, code)
-		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID})
+		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID, "nickname": client.Nickname})
 		return
 	}
 
@@ -648,7 +685,7 @@ func (h *Hub) handleDisconnect(client *Client) {
 
 	if _, ok := h.roomManager.GetRoom(code); ok {
 		h.beginReconnectGrace(client.ID, client.Nickname, code)
-		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID})
+		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID, "nickname": client.Nickname})
 	}
 }
 
@@ -764,12 +801,38 @@ func (h *Hub) sendGameState(client *Client) {
 	case game.PhaseDay:
 		h.sendToClient(client, "phase_change", map[string]interface{}{"phase": "day"})
 		h.sendToClient(client, "day_state", map[string]interface{}{"remaining": s.Tokens, "history": s.TokenHistory})
+		h.mu.RLock()
+		rt := h.roomTimers[client.RoomCode]
+		h.mu.RUnlock()
+		if rt != nil && !rt.dayStart.IsZero() {
+			remaining := h.dayTimeout - time.Since(rt.dayStart)
+			if remaining < 0 {
+				remaining = 0
+			}
+			h.sendToClient(client, "timer_sync", map[string]interface{}{
+				"phase":       "day",
+				"remainingMs": remaining.Milliseconds(),
+			})
+		}
 	case game.PhaseVote:
 		payload := map[string]interface{}{"voteType": string(s.VoteType)}
 		if votedFor, ok := s.Votes[client.ID]; ok {
 			payload["votedFor"] = votedFor
 		}
 		h.sendToClient(client, "vote_state", payload)
+		h.mu.RLock()
+		rt := h.roomTimers[client.RoomCode]
+		h.mu.RUnlock()
+		if rt != nil && !rt.voteStart.IsZero() {
+			remaining := h.voteTimeout - time.Since(rt.voteStart)
+			if remaining < 0 {
+				remaining = 0
+			}
+			h.sendToClient(client, "timer_sync", map[string]interface{}{
+				"phase":       "vote",
+				"remainingMs": remaining.Milliseconds(),
+			})
+		}
 	case game.PhaseResult:
 		h.sendToClient(client, "game_over", map[string]interface{}{
 			"winner":      s.Winner,
@@ -777,6 +840,7 @@ func (h *Hub) sendGameState(client *Client) {
 			"word":        s.Word,
 			"roles":       roleMapForGameOver(s),
 			"mayorSecret": string(s.MayorSecret),
+			"votes":       s.Votes,
 		})
 	}
 }
@@ -884,17 +948,41 @@ func (h *Hub) startDayTimer(code string, g *game.Game) {
 	}
 	rt.dayCancel = make(chan struct{})
 	cancel := rt.dayCancel
+	timeout := h.dayTimeout
+	rt.dayStart = time.Now()
 	h.mu.Unlock()
 
+	h.broadcastRoom(code, "timer_sync", map[string]interface{}{
+		"phase":       "day",
+		"remainingMs": timeout.Milliseconds(),
+	})
+
 	go func() {
-		t := time.NewTimer(h.dayTimeout)
-		defer t.Stop()
-		select {
-		case <-t.C:
-			out := g.DayTimeUp()
-			h.deliverGameOutBatch(code, out)
-			h.scheduleIfPhaseTransitioned(code, g)
-		case <-cancel:
+		deadline := time.NewTimer(timeout)
+		tick := time.NewTicker(1 * time.Second)
+		defer deadline.Stop()
+		defer tick.Stop()
+		start := time.Now()
+		for {
+			select {
+			case <-deadline.C:
+				out := g.DayTimeUp()
+				h.deliverGameOutBatch(code, out)
+				h.scheduleIfPhaseTransitioned(code, g)
+				return
+			case <-tick.C:
+				elapsed := time.Since(start)
+				remaining := timeout - elapsed
+				if remaining < 0 {
+					remaining = 0
+				}
+				h.broadcastRoom(code, "timer_sync", map[string]interface{}{
+					"phase":       "day",
+					"remainingMs": remaining.Milliseconds(),
+				})
+			case <-cancel:
+				return
+			}
 		}
 	}()
 }
@@ -916,17 +1004,41 @@ func (h *Hub) startVoteTimer(code string, g *game.Game) {
 	}
 	rt.voteCancel = make(chan struct{})
 	cancel := rt.voteCancel
+	timeout := h.voteTimeout
+	rt.voteStart = time.Now()
 	h.mu.Unlock()
 
+	h.broadcastRoom(code, "timer_sync", map[string]interface{}{
+		"phase":       "vote",
+		"remainingMs": timeout.Milliseconds(),
+	})
+
 	go func() {
-		t := time.NewTimer(h.voteTimeout)
-		defer t.Stop()
-		select {
-		case <-t.C:
-			out := g.VoteTimeUp()
-			h.deliverGameOutBatch(code, out)
-			h.scheduleIfPhaseTransitioned(code, g)
-		case <-cancel:
+		deadline := time.NewTimer(timeout)
+		tick := time.NewTicker(1 * time.Second)
+		defer deadline.Stop()
+		defer tick.Stop()
+		start := time.Now()
+		for {
+			select {
+			case <-deadline.C:
+				out := g.VoteTimeUp()
+				h.deliverGameOutBatch(code, out)
+				h.scheduleIfPhaseTransitioned(code, g)
+				return
+			case <-tick.C:
+				elapsed := time.Since(start)
+				remaining := timeout - elapsed
+				if remaining < 0 {
+					remaining = 0
+				}
+				h.broadcastRoom(code, "timer_sync", map[string]interface{}{
+					"phase":       "vote",
+					"remainingMs": remaining.Milliseconds(),
+				})
+			case <-cancel:
+				return
+			}
 		}
 	}()
 }
