@@ -1,0 +1,9 @@
+I think the last round timer is still running, making the 2nd game crash in the middle
+
+---
+
+what are you taking about, in the picture, it is the time, but in the 2nd new game, it will show the previous game remaining time, so that is that the reason to make the 2nd game("再來一局") broke?
+
+---
+
+What the fuck are you talking about? I am talking about the game websocket is sudden lost after "再來一局", I think is the first game status affecting the second game.

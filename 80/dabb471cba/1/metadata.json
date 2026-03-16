@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "80dabb471cba",
+  "session_id": "46aa3b25-29ac-4b60-81f7-a6026fff8b15",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-16T13:18:29.835317118Z",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "deploy/deployment.yaml",
+    "readme.md"
+  ],
+  "agent": "Cursor",
+  "model": "claude-4.6-opus-high",
+  "turn_id": "5150af58eef1",
+  "checkpoint_transcript_start": 237,
+  "transcript_lines_at_start": 237,
+  "session_metrics": {
+    "turn_count": 7,
+    "context_tokens": 196667,
+    "context_window_size": 200000
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-16T13:18:29.795503198Z",
+    "agent_lines": 0,
+    "human_added": 6,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 6,
+    "agent_percentage": 0
+  }
+}
