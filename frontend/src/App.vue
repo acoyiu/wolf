@@ -183,6 +183,7 @@
           </li>
         </ul>
       </article>
+      <p class="label" style="text-align:center;margin-top:1rem;">請刷新頁面以重啓遊戲</p>
     </section>
 
     <transition name="toast">
@@ -430,6 +431,7 @@ function handleMessage(msg) {
       result.roles = payload.roles || {}
       result.mayorSecret = payload.mayorSecret || ''
       view.value = 'result'
+      clearSession()
       break
     case 'game_aborted':
       toast(payload.reason || 'game_aborted')

@@ -610,6 +610,13 @@ func (h *Hub) handleDisconnect(client *Client) {
 		return
 	}
 
+	// Game is over (result phase) or already cleaned up — just silently detach.
+	// Do NOT trigger host-disconnect / close-room logic; the game is finished
+	// and other clients should not be booted when someone refreshes.
+	if g != nil {
+		return
+	}
+
 	rm, ok := h.roomManager.GetRoom(code)
 	if !ok {
 		return
