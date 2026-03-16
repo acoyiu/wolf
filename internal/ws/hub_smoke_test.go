@@ -35,7 +35,6 @@ type wsBot struct {
 	timerSyncs     []timerSyncMsg
 	voteCasts      []voteCastMsg
 	gameOverResult *gameOverPayload
-	backToWaiting  bool
 	winner         string
 	reason         string
 	word           string
@@ -118,9 +117,6 @@ func (b *wsBot) apply(msg wsOutMsg) {
 		}
 		if players, ok := msg.Payload["players"].([]interface{}); ok {
 			b.players = len(players)
-		}
-		if msg.Type == "room_state" && b.gameOver {
-			b.backToWaiting = true
 		}
 	case "role_assigned":
 		b.role = payloadString(msg.Payload, "role")
@@ -358,33 +354,6 @@ func (b *wsBot) Word() string {
 	return b.word
 }
 
-func (b *wsBot) BackToWaiting() bool {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.backToWaiting
-}
-
-func (b *wsBot) ResetForNewGame() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.role = ""
-	b.mayorSecret = ""
-	b.nightStep = 0
-	b.candidates = nil
-	b.phase = ""
-	b.voteType = ""
-	b.gameOver = false
-	b.gameAborted = false
-	b.lastError = ""
-	b.timerSyncs = nil
-	b.voteCasts = nil
-	b.gameOverVotes = nil
-	b.gameOverRoles = nil
-	b.winner = ""
-	b.reason = ""
-	b.word = ""
-	b.backToWaiting = false
-}
 
 func payloadString(payload map[string]interface{}, key string) string {
 	v, ok := payload[key]
@@ -429,6 +398,16 @@ func pickOther(ids []string, self string) string {
 		}
 	}
 	return ""
+}
+
+func botCanVote(b *wsBot, voteType string) bool {
+	if voteType == "guess_seer" && b.EffectiveRole() != "werewolf" {
+		return false
+	}
+	if voteType == "guess_wolf" && b.EffectiveRole() == "werewolf" {
+		return false
+	}
+	return true
 }
 
 func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
@@ -686,17 +665,20 @@ func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
 		}
 	}
 
-	// In guess_wolf, all players can vote.
+	// In guess_wolf, only non-wolf players can vote.
 	ids := make([]string, 0, len(bots))
 	for _, b := range bots {
 		ids = append(ids, b.PlayerID())
 	}
 	for _, b := range bots {
+		if !botCanVote(b, "guess_wolf") {
+			continue
+		}
 		target := pickOther(ids, b.PlayerID())
 		b.Send(t, "vote_cast", map[string]interface{}{"target": target})
 	}
 
-	waitUntil(t, 5*time.Second, "game over", func() bool {
+	waitUntil(t, 10*time.Second, "game over", func() bool {
 		for _, b := range bots {
 			if !b.GameOver() {
 				return false
@@ -1240,16 +1222,19 @@ func TestHubTimerSyncDuringDayAndVote(t *testing.T) {
 		return true
 	})
 
-	// Vote to end the game
+	// Vote to end the game (wolves excluded in guess_wolf)
 	ids := make([]string, len(bots))
 	for i, b := range bots {
 		ids[i] = b.PlayerID()
 	}
 	for _, b := range bots {
+		if !botCanVote(b, "guess_wolf") {
+			continue
+		}
 		b.Send(t, "vote_cast", map[string]interface{}{"target": pickOther(ids, b.PlayerID())})
 	}
 
-	waitUntil(t, 5*time.Second, "game over", func() bool {
+	waitUntil(t, 10*time.Second, "game over", func() bool {
 		for _, b := range bots {
 			if !b.GameOver() {
 				return false
@@ -1300,11 +1285,7 @@ func TestHubVoteProgressBroadcast(t *testing.T) {
 
 	var voters []*wsBot
 	for _, b := range bots {
-		if voteType == "guess_seer" {
-			if b.EffectiveRole() == "werewolf" {
-				voters = append(voters, b)
-			}
-		} else {
+		if botCanVote(b, voteType) {
 			voters = append(voters, b)
 		}
 	}
@@ -1393,7 +1374,7 @@ func TestHubGameOverIncludesVotesAndRoles(t *testing.T) {
 	}
 
 	for _, b := range bots {
-		if voteType == "guess_seer" && b.EffectiveRole() != "werewolf" {
+		if !botCanVote(b, voteType) {
 			continue
 		}
 		target := pickOther(ids, b.PlayerID())
@@ -1452,208 +1433,6 @@ func TestHubGameOverIncludesVotesAndRoles(t *testing.T) {
 	}
 }
 
-func TestHubPlayAgainResetsToWaiting(t *testing.T) {
-	h := NewHub(30*time.Second, 30*time.Second)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", h.HandleWS)
-	server := httptest.NewServer(mux)
-	defer server.Close()
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-
-	bots := []*wsBot{
-		newWSBot(t, wsURL, "PA1"),
-		newWSBot(t, wsURL, "PA2"),
-		newWSBot(t, wsURL, "PA3"),
-		newWSBot(t, wsURL, "PA4"),
-	}
-	defer func() { for _, b := range bots { b.Close() } }()
-
-	roomCode := setupAndJoinRoom(t, bots)
-	bots[0].Send(t, "start_game", map[string]interface{}{})
-	playThroughNight(t, bots)
-
-	bots[0].Send(t, "day_token", map[string]interface{}{"token": "correct"})
-	waitUntil(t, 5*time.Second, "vote phase", func() bool {
-		for _, b := range bots {
-			if b.Phase() != "vote" {
-				return false
-			}
-		}
-		return true
-	})
-
-	voteType := bots[0].VoteType()
-	ids := make([]string, len(bots))
-	for i, b := range bots {
-		ids[i] = b.PlayerID()
-	}
-	for _, b := range bots {
-		if voteType == "guess_seer" && b.EffectiveRole() != "werewolf" {
-			continue
-		}
-		b.Send(t, "vote_cast", map[string]interface{}{"target": pickOther(ids, b.PlayerID())})
-	}
-	waitUntil(t, 5*time.Second, "game over", func() bool {
-		for _, b := range bots {
-			if !b.GameOver() {
-				return false
-			}
-		}
-		return true
-	})
-
-	// Host sends play_again
-	bots[0].Send(t, "play_again", map[string]interface{}{})
-
-	// All bots should receive room_state (back to waiting)
-	waitUntil(t, 5*time.Second, "all back to waiting", func() bool {
-		for _, b := range bots {
-			if !b.BackToWaiting() {
-				return false
-			}
-		}
-		return true
-	})
-
-	// Verify room code is preserved and player count is correct
-	for _, b := range bots {
-		if b.RoomCode() != roomCode {
-			t.Fatalf("bot %s roomCode=%s want %s after play_again", b.nickname, b.RoomCode(), roomCode)
-		}
-		if b.PlayersCount() != 4 {
-			t.Fatalf("bot %s players=%d want 4 after play_again", b.nickname, b.PlayersCount())
-		}
-	}
-
-	// Non-host play_again should be rejected
-	bots[1].Send(t, "play_again", map[string]interface{}{})
-	waitUntil(t, 2*time.Second, "non-host play_again rejected", func() bool {
-		return bots[1].LastError() != ""
-	})
-}
-
-func TestHubPlayAgainThenSecondGame(t *testing.T) {
-	h := NewHub(30*time.Second, 30*time.Second)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", h.HandleWS)
-	server := httptest.NewServer(mux)
-	defer server.Close()
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-
-	bots := []*wsBot{
-		newWSBot(t, wsURL, "L1"),
-		newWSBot(t, wsURL, "L2"),
-		newWSBot(t, wsURL, "L3"),
-		newWSBot(t, wsURL, "L4"),
-	}
-	defer func() { for _, b := range bots { b.Close() } }()
-
-	roomCode := setupAndJoinRoom(t, bots)
-
-	// --- Game 1 ---
-	bots[0].Send(t, "start_game", map[string]interface{}{})
-	playThroughNight(t, bots)
-
-	bots[0].Send(t, "day_token", map[string]interface{}{"token": "correct"})
-	waitUntil(t, 5*time.Second, "vote phase game 1", func() bool {
-		for _, b := range bots {
-			if b.Phase() != "vote" {
-				return false
-			}
-		}
-		return true
-	})
-
-	voteType := bots[0].VoteType()
-	ids := make([]string, len(bots))
-	for i, b := range bots {
-		ids[i] = b.PlayerID()
-	}
-	for _, b := range bots {
-		if voteType == "guess_seer" && b.EffectiveRole() != "werewolf" {
-			continue
-		}
-		b.Send(t, "vote_cast", map[string]interface{}{"target": pickOther(ids, b.PlayerID())})
-	}
-	waitUntil(t, 5*time.Second, "game over game 1", func() bool {
-		for _, b := range bots {
-			if !b.GameOver() {
-				return false
-			}
-		}
-		return true
-	})
-
-	// Play again
-	bots[0].Send(t, "play_again", map[string]interface{}{})
-	waitUntil(t, 5*time.Second, "back to waiting", func() bool {
-		for _, b := range bots {
-			if !b.BackToWaiting() {
-				return false
-			}
-		}
-		return true
-	})
-
-	// Reset bot state for game 2
-	for _, b := range bots {
-		b.ResetForNewGame()
-	}
-
-	// --- Game 2 ---
-	bots[0].Send(t, "start_game", map[string]interface{}{})
-	playThroughNight(t, bots)
-
-	// Verify new roles were assigned (game state was fresh)
-	for _, b := range bots {
-		if b.Role() == "" {
-			t.Fatalf("bot %s has no role in game 2", b.nickname)
-		}
-	}
-
-	bots[0].Send(t, "day_token", map[string]interface{}{"token": "correct"})
-	waitUntil(t, 5*time.Second, "vote phase game 2", func() bool {
-		for _, b := range bots {
-			if b.Phase() != "vote" {
-				return false
-			}
-		}
-		return true
-	})
-
-	voteType2 := bots[0].VoteType()
-	for _, b := range bots {
-		if voteType2 == "guess_seer" && b.EffectiveRole() != "werewolf" {
-			continue
-		}
-		b.Send(t, "vote_cast", map[string]interface{}{"target": pickOther(ids, b.PlayerID())})
-	}
-	waitUntil(t, 5*time.Second, "game over game 2", func() bool {
-		for _, b := range bots {
-			if !b.GameOver() {
-				return false
-			}
-		}
-		return true
-	})
-
-	// Verify room code still the same
-	for _, b := range bots {
-		if b.RoomCode() != roomCode {
-			t.Fatalf("bot %s roomCode changed in game 2: %s != %s", b.nickname, b.RoomCode(), roomCode)
-		}
-	}
-
-	// Verify game_over has data
-	for _, b := range bots {
-		if b.Winner() == "" {
-			t.Fatalf("bot %s no winner in game 2", b.nickname)
-		}
-		if b.Word() == "" {
-			t.Fatalf("bot %s no word in game 2", b.nickname)
-		}
-	}
-}
 
 func TestHubReconnectDuringVotePhase(t *testing.T) {
 	h := NewHub(30*time.Second, 30*time.Second)
@@ -1691,7 +1470,7 @@ func TestHubReconnectDuringVotePhase(t *testing.T) {
 	var disconnectedBot *wsBot
 	var disconnectedIdx int
 	for i, b := range bots {
-		if voteType == "guess_seer" && b.EffectiveRole() != "werewolf" {
+		if !botCanVote(b, voteType) {
 			continue
 		}
 		disconnectedBot = b
@@ -1743,7 +1522,7 @@ func TestHubReconnectDuringVotePhase(t *testing.T) {
 
 	// All eligible voters vote now (including the reconnected one)
 	for _, b := range bots {
-		if voteType == "guess_seer" && b.EffectiveRole() != "werewolf" {
+		if !botCanVote(b, voteType) {
 			continue
 		}
 		target := pickOther(ids, b.PlayerID())

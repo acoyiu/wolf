@@ -147,23 +147,6 @@ func (m *Manager) StartGame(code, playerID string) (*Room, error) {
 	return room, nil
 }
 
-func (m *Manager) ResetToWaiting(code, playerID string) (*Room, error) {
-	m.mu.RLock()
-	room, ok := m.rooms[code]
-	m.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("room_not_found")
-	}
-	room.mu.Lock()
-	defer room.mu.Unlock()
-	if room.HostID != playerID {
-		return nil, fmt.Errorf("host_only")
-	}
-	room.State = StateWaiting
-	room.LastActivity = time.Now()
-	return room, nil
-}
-
 func (m *Manager) GetRoom(code string) (*Room, bool) {
 	m.mu.RLock()
 	room, ok := m.rooms[code]

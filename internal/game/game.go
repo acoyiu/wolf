@@ -468,16 +468,22 @@ func (g *Game) DayTimeUp() []OutMsg {
 }
 
 func (g *Game) eligibleVoters() []string {
-	if g.VoteType == VoteGuessSeer {
-		var voters []string
-		for _, id := range g.PlayerIDs {
+	var voters []string
+	for _, id := range g.PlayerIDs {
+		switch g.VoteType {
+		case VoteGuessSeer:
 			if g.IsWerewolf(id) {
 				voters = append(voters, id)
 			}
+		case VoteGuessWolf:
+			if !g.IsWerewolf(id) {
+				voters = append(voters, id)
+			}
+		default:
+			voters = append(voters, id)
 		}
-		return voters
 	}
-	return g.PlayerIDs
+	return voters
 }
 
 func (g *Game) eligibleTargets(voterID string) []string {

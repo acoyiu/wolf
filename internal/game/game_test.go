@@ -283,8 +283,8 @@ func TestVoteTimeUpRandomFillsMissing(t *testing.T) {
 
 	_, _ = g.CastVote("m", "w")
 	msgs := g.VoteTimeUp()
-	if len(g.Votes) != 4 {
-		t.Fatalf("votes=%d want 4", len(g.Votes))
+	if len(g.Votes) != 3 {
+		t.Fatalf("votes=%d want 3 (wolves excluded)", len(g.Votes))
 	}
 	if len(msgs) == 0 {
 		t.Fatalf("expected vote resolution messages")

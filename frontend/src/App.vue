@@ -171,11 +171,6 @@
         <span>{{ roleText }}</span>
       </p>
 
-      <p class="label turn-hint" v-if="daySpeakerIdx >= 0">
-        提問順序: <strong>{{ room.players[daySpeakerIdx]?.nickname }}</strong>
-        <button class="btn-inline" @click="advanceSpeaker" v-if="isHost">下一位</button>
-      </p>
-
       <article class="glass card" v-if="isHost">
         <p class="label">村長控制台</p>
         <div class="token-grid">
@@ -201,9 +196,12 @@
           </div>
         </div>
         <p class="label">歷史紀錄</p>
-        <div class="history">
+        <div class="history" ref="historyRef">
           <TransitionGroup name="token-pop">
-            <span class="chip token-chip" :class="`token ${tokenClass(token)}`" v-for="(token, idx) in day.history" :key="'h'+idx">{{ tokenLabel(token) }}</span>
+            <span class="history-entry" v-for="item in reversedHistory" :key="'h'+item.idx">
+              <span class="history-idx">{{ item.idx + 1 }}.</span>
+              <span class="chip token-chip" :class="`token ${tokenClass(item.token)}`">{{ tokenLabel(item.token) }}</span>
+            </span>
           </TransitionGroup>
           <span class="label" v-if="day.history.length === 0">目前還沒有回應。</span>
         </div>
@@ -238,7 +236,7 @@
         </div>
       </div>
 
-      <p class="label" v-if="!canVoteInCurrentMode">此回合僅狼人需要投票，請等待。</p>
+      <p class="label" v-if="!canVoteInCurrentMode">{{ voteMode === 'guess_seer' ? '此回合僅狼人需要投票，請等待。' : '你是狼人，無法投票，請等待結果。' }}</p>
       <div class="pill-grid" v-if="canVoteInCurrentMode">
         <button class="btn pill" :class="{ 'pill--voted': votedFor === p.id }"
           v-for="p in voteCandidates" :key="p.id" @click="castVote(p.id)" :disabled="!!votedFor">
@@ -289,8 +287,7 @@
       </article>
 
       <div class="actions" style="justify-content:center">
-        <button class="btn primary" @click="playAgain" v-if="isHost">再來一局</button>
-        <p class="label" v-else style="text-align:center">等待房主開始下一局...</p>
+        <button class="btn primary" @click="returnToLobby">回到大廳</button>
       </div>
     </section>
 
@@ -316,8 +313,8 @@ const savedSession = loadSession()
 const myNickname = ref(savedSession?.nickname || '')
 const targetPlayers = ref(6)
 const difficulty = ref('easy')
-const inviteCodeFromUrl = (new URLSearchParams(window.location.search).get('roomCode') || '').toUpperCase()
-const joinCode = ref(inviteCodeFromUrl || savedSession?.roomCode || '')
+const inviteCodeFromUrl = ref((new URLSearchParams(window.location.search).get('roomCode') || '').toUpperCase())
+const joinCode = ref(inviteCodeFromUrl.value || savedSession?.roomCode || '')
 const toastText = ref('')
 let resumeHintTimerId = 0
 let pendingResumeNewId = ''
@@ -330,9 +327,9 @@ const shareUrl = ref('')
 const qrDataUrl = ref('')
 const votedFor = ref('')
 const voteMode = ref('guess_wolf')
+const historyRef = ref(null)
 const nightConfirmed = ref(false)
 const selectedWord = ref('')
-const daySpeakerIdx = ref(-1)
 const roleRevealed = ref(false)
 const screenShake = ref(false)
 const confettiCanvas = ref(null)
@@ -384,7 +381,7 @@ const wsUrl = () => {
   return `${scheme}//${window.location.host}/ws`
 }
 
-const { status, reconnectAttempts, errorMessage, lastMessage, send } = useSocket(wsUrl)
+const { status, reconnectAttempts, errorMessage, lastMessage, send, close: closeSocket, connect: connectSocket } = useSocket(wsUrl)
 
 const statusText = computed(() => {
   switch (status.value) {
@@ -396,14 +393,18 @@ const statusText = computed(() => {
   }
 })
 
-const isInviteMode = computed(() => Boolean(inviteCodeFromUrl))
+const isInviteMode = computed(() => Boolean(inviteCodeFromUrl.value))
 const isHost = computed(() => room.players.some((p) => p.id === playerId.value && p.isHost))
 const canStart = computed(() => isHost.value && room.players.length >= room.targetPlayers)
 const roleText = computed(() => (myRole.value === 'mayor' ? `村長 (${roleName(mayorSecret.value || 'unknown')})` : roleName(myRole.value || 'unknown')))
 const effectiveRole = computed(() => (myRole.value === 'mayor' ? (mayorSecret.value || '') : myRole.value))
 const voteCandidates = computed(() => room.players.filter((p) => p.id !== playerId.value))
 const votePrompt = computed(() => (voteMode.value === 'guess_seer' ? '狼人正在投票指認先知。' : '全體玩家投票找出狼人。'))
-const canVoteInCurrentMode = computed(() => (voteMode.value !== 'guess_seer' ? true : effectiveRole.value === 'werewolf'))
+const canVoteInCurrentMode = computed(() => {
+  if (voteMode.value === 'guess_seer') return effectiveRole.value === 'werewolf'
+  if (voteMode.value === 'guess_wolf') return effectiveRole.value !== 'werewolf'
+  return true
+})
 const hasVoteData = computed(() => result.votes && Object.keys(result.votes).length > 0)
 const winnerText = computed(() => {
   if (result.winner === 'villagers') return '村民陣營'
@@ -425,6 +426,14 @@ const tokenStats = computed(() => [
   { key: 'far', label: '差太多', className: 'far', value: day.remaining.far },
   { key: 'correct', label: '正確', className: 'correct', value: day.remaining.correct },
 ])
+
+const reversedHistory = computed(() => {
+  const items = []
+  for (let i = day.history.length - 1; i >= 0; i--) {
+    items.push({ idx: i, token: day.history[i] })
+  }
+  return items
+})
 
 const tokenSummaryItems = computed(() => {
   const used = {}
@@ -682,7 +691,7 @@ function handleMessage(msg) {
       night.revealWord = ''
       nightConfirmed.value = false
       selectedWord.value = ''
-      announcePhase('night', '夜晚', '夜幕降臨')
+      announcePhase('night', '夜晚', '請保持表情，不要露出破綻')
       hapticFeedback('phase')
       playSound('phase')
       break
@@ -692,6 +701,7 @@ function handleMessage(msg) {
       night.revealWord = payload.word || ''
       nightConfirmed.value = false
       selectedWord.value = ''
+      announcePhase('night', '夜晚', '請保持表情，不要露出破綻')
       hapticFeedback('reveal')
       playSound('reveal')
       break
@@ -701,7 +711,6 @@ function handleMessage(msg) {
         day.history = []
         nightConfirmed.value = false
         selectedWord.value = ''
-        initSpeakerOrder()
         announcePhase('day', '白天', '開始提問')
         hapticFeedback('phase')
         playSound('phase')
@@ -717,6 +726,7 @@ function handleMessage(msg) {
     case 'mayor_response':
       day.history.push(payload.token)
       if (payload.remaining) day.remaining = payload.remaining
+      nextTick(() => { if (historyRef.value) historyRef.value.scrollTop = 0 })
       hapticFeedback('token')
       if (payload.token === 'correct') {
         triggerScreenShake()
@@ -769,6 +779,7 @@ function handleMessage(msg) {
       view.value = 'result'
       stopLocalTimer()
       clearSession()
+      closeSocket()
       announcePhase('result', result.winner === 'villagers' ? '村民勝利' : '狼人勝利', '')
       hapticFeedback('result')
       playSound('result')
@@ -840,7 +851,7 @@ function joinRoom() {
 
 function leaveRoom() { emit('leave_room', {}); resetToLobby() }
 function startGame() { emit('start_game', {}) }
-function playAgain() { emit('play_again', {}) }
+function returnToLobby() { resetToLobby() }
 
 function pickWord(word) {
   if (selectedWord.value) return
@@ -984,20 +995,6 @@ function formatTimer(ms) {
   return `${min}:${String(sec).padStart(2, '0')}`
 }
 
-function initSpeakerOrder() {
-  if (room.players.length > 0) {
-    const hostIdx = room.players.findIndex((p) => p.isHost)
-    daySpeakerIdx.value = hostIdx >= 0 ? (hostIdx + 1) % room.players.length : 0
-  } else {
-    daySpeakerIdx.value = -1
-  }
-}
-
-function advanceSpeaker() {
-  if (room.players.length === 0) return
-  daySpeakerIdx.value = (daySpeakerIdx.value + 1) % room.players.length
-}
-
 function hapticFeedback(type) {
   try {
     if (navigator.vibrate) {
@@ -1111,7 +1108,6 @@ function resetGameState() {
   result.votes = {}
   voteProgress.voted = 0
   voteProgress.total = 0
-  daySpeakerIdx.value = -1
   dayTotalMs = 0
   voteTotalMs = 0
   stopLocalTimer()
@@ -1128,6 +1124,12 @@ function resetToLobby() {
   room.players = []
   shareUrl.value = ''
   qrDataUrl.value = ''
+  joinCode.value = ''
+  inviteCodeFromUrl.value = ''
   resetGameState()
+  connectSocket()
+  if (window.location.search) {
+    window.history.replaceState({}, '', window.location.pathname)
+  }
 }
 </script>

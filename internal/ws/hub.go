@@ -194,8 +194,6 @@ func (h *Hub) dispatch(client *Client, in Envelope) {
 		h.handleDayToken(client, in.Payload)
 	case "vote_cast":
 		h.handleVoteCast(client, in.Payload)
-	case "play_again":
-		h.handlePlayAgain(client)
 	case "ping":
 		h.sendToClient(client, "pong", map[string]interface{}{})
 	default:
@@ -554,44 +552,6 @@ func (h *Hub) handleVoteCast(client *Client, raw json.RawMessage) {
 	h.scheduleIfPhaseTransitioned(code, g)
 }
 
-func (h *Hub) handlePlayAgain(client *Client) {
-	code := client.RoomCode
-	if code == "" {
-		h.sendError(client, "room_not_found")
-		return
-	}
-	h.mu.RLock()
-	g := h.games[code]
-	h.mu.RUnlock()
-	if g == nil || g.Snapshot().Phase != game.PhaseResult {
-		h.sendError(client, "invalid_phase")
-		return
-	}
-
-	// Stop all timers left over from the previous game so that the next
-	// game's timers can start fresh (dayCancel/voteCancel guards check for
-	// non-nil channels and bail out early).
-	h.stopTimers(code)
-
-	rm, err := h.roomManager.ResetToWaiting(code, client.ID)
-	if err != nil {
-		h.sendError(client, err.Error())
-		return
-	}
-	snap := rm.Snapshot()
-
-	h.mu.Lock()
-	delete(h.games, code)
-	h.mu.Unlock()
-
-	h.broadcastRoom(code, "room_state", map[string]interface{}{
-		"roomCode":      snap.Code,
-		"targetPlayers": snap.TargetPlayers,
-		"players":       snap.Players,
-		"canStart":      len(snap.Players) >= snap.TargetPlayers,
-	})
-}
-
 func (h *Hub) scheduleIfPhaseTransitioned(code string, g *game.Game) {
 	switch g.Snapshot().Phase {
 	case game.PhaseDay:
@@ -599,7 +559,7 @@ func (h *Hub) scheduleIfPhaseTransitioned(code string, g *game.Game) {
 	case game.PhaseVote:
 		h.startVoteTimer(code, g)
 	case game.PhaseResult:
-		h.scheduleRoomClose(code, "game_ended", 10*time.Second)
+		h.scheduleRoomClose(code, "game_ended", 20*time.Second)
 	}
 }
 

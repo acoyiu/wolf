@@ -45,6 +45,7 @@ export function useSocket(urlFactory) {
       return
     }
 
+    manualClose = false
     const ws = new WebSocket(urlFactory())
     socket.value = ws
     status.value = reconnectAttempts.value > 0 ? 'reconnecting' : 'connecting'
