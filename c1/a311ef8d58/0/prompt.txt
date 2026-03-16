@@ -1,0 +1,5 @@
+will the yes button click too fast make the ws to crash?
+
+---
+
+but ws just crash during the game

@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "c1a311ef8d58",
+  "session_id": "46aa3b25-29ac-4b60-81f7-a6026fff8b15",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-16T09:57:52.729336904Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "frontend/src/App.vue",
+    "frontend/src/composables/useSocket.js",
+    "internal/ws/hub.go"
+  ],
+  "agent": "Cursor",
+  "model": "claude-4.6-opus-high",
+  "turn_id": "0540a37c0033",
+  "checkpoint_transcript_start": 198,
+  "transcript_lines_at_start": 198,
+  "session_metrics": {
+    "turn_count": 4,
+    "context_tokens": 196667,
+    "context_window_size": 200000
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-16T09:57:52.648052351Z",
+    "agent_lines": 63,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 63,
+    "agent_percentage": 100
+  }
+}
