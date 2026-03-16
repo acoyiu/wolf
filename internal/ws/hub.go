@@ -135,8 +135,16 @@ func (h *Hub) readLoop(client *Client) {
 
 func (h *Hub) writeLoop(client *Client) {
 	defer client.Conn.Close()
-	for msg := range client.Send {
-		if err := client.Conn.WriteJSON(msg); err != nil {
+	for {
+		select {
+		case msg, ok := <-client.Send:
+			if !ok {
+				return
+			}
+			if err := client.Conn.WriteJSON(msg); err != nil {
+				return
+			}
+		case <-client.closed:
 			return
 		}
 	}
@@ -192,25 +200,26 @@ func (h *Hub) handleCreateRoom(client *Client, raw json.RawMessage) {
 		h.sendError(client, err.Error())
 		return
 	}
+	snap := rm.Snapshot()
 
 	difficulty := parseDifficulty(p.Difficulty)
 
 	h.mu.Lock()
 	client.Nickname = p.Nickname
-	client.RoomCode = rm.Code
-	if _, ok := h.roomMembers[rm.Code]; !ok {
-		h.roomMembers[rm.Code] = make(map[string]*Client)
+	client.RoomCode = snap.Code
+	if _, ok := h.roomMembers[snap.Code]; !ok {
+		h.roomMembers[snap.Code] = make(map[string]*Client)
 	}
-	h.roomMembers[rm.Code][client.ID] = client
-	h.roomDifficulty[rm.Code] = difficulty
+	h.roomMembers[snap.Code][client.ID] = client
+	h.roomDifficulty[snap.Code] = difficulty
 	h.mu.Unlock()
 
 	h.sendToClient(client, "room_created", map[string]interface{}{
-		"roomCode":      rm.Code,
-		"targetPlayers": rm.TargetPlayers,
-		"players":       rm.Players,
+		"roomCode":      snap.Code,
+		"targetPlayers": snap.TargetPlayers,
+		"players":       snap.Players,
 		"difficulty":    string(difficulty),
-		"joinUrl":       client.BaseURL + "/?roomCode=" + rm.Code,
+		"joinUrl":       client.BaseURL + "/?roomCode=" + snap.Code,
 	})
 }
 
@@ -243,6 +252,7 @@ func (h *Hub) handleJoinRoom(client *Client, raw json.RawMessage) {
 		h.sendError(client, err.Error())
 		return
 	}
+	snap := rm.Snapshot()
 
 	h.mu.Lock()
 	client.Nickname = p.Nickname
@@ -253,11 +263,11 @@ func (h *Hub) handleJoinRoom(client *Client, raw json.RawMessage) {
 	h.roomMembers[p.RoomCode][client.ID] = client
 	h.mu.Unlock()
 
-	h.broadcastRoom(rm.Code, "player_joined", map[string]interface{}{
-		"roomCode":      rm.Code,
-		"targetPlayers": rm.TargetPlayers,
-		"players":       rm.Players,
-		"canStart":      len(rm.Players) >= rm.TargetPlayers,
+	h.broadcastRoom(snap.Code, "player_joined", map[string]interface{}{
+		"roomCode":      snap.Code,
+		"targetPlayers": snap.TargetPlayers,
+		"players":       snap.Players,
+		"canStart":      len(snap.Players) >= snap.TargetPlayers,
 	})
 }
 
@@ -275,17 +285,19 @@ func (h *Hub) handleResumeSession(client *Client, raw json.RawMessage) {
 		return
 	}
 
+	h.mu.Lock()
 	rm, ok := h.roomManager.GetRoom(p.RoomCode)
 	if !ok {
+		h.mu.Unlock()
 		h.sendError(client, "resume_room_not_found")
 		return
 	}
 	if !roomHasPlayer(rm, p.PlayerID) {
+		h.mu.Unlock()
 		h.sendError(client, "resume_player_not_found")
 		return
 	}
 
-	h.mu.Lock()
 	pending, hasPending := h.pendingReconnects[p.PlayerID]
 	if hasPending && pending.RoomCode != p.RoomCode {
 		h.mu.Unlock()
@@ -322,12 +334,9 @@ func (h *Hub) handleResumeSession(client *Client, raw json.RawMessage) {
 	h.roomMembers[p.RoomCode][client.ID] = client
 	h.mu.Unlock()
 
-	// Close old connection after maps are updated so handleDisconnect sees
-	// the new client and skips cleanup (replaced=true).
 	if oldConn != nil {
 		oldConn.once.Do(func() {
 			close(oldConn.closed)
-			close(oldConn.Send)
 		})
 		_ = oldConn.Conn.Close()
 	}
@@ -365,6 +374,7 @@ func (h *Hub) handleLeaveRoom(client *Client) {
 		h.closeRoom(code, "host_disconnected")
 		return
 	}
+	snap := rm.Snapshot()
 
 	h.mu.Lock()
 	if members, ok := h.roomMembers[code]; ok {
@@ -377,7 +387,7 @@ func (h *Hub) handleLeaveRoom(client *Client) {
 	h.mu.Unlock()
 
 	h.broadcastRoom(code, "player_left", map[string]interface{}{
-		"players": rm.Players,
+		"players": snap.Players,
 	})
 }
 
@@ -393,8 +403,13 @@ func (h *Hub) handleStartGame(client *Client) {
 		h.sendError(client, err.Error())
 		return
 	}
+	snap := rm.Snapshot()
 
-	g, err := game.NewGame(code, rm.PlayerIDs(), rm.HostID)
+	playerIDs := make([]string, len(snap.Players))
+	for i, p := range snap.Players {
+		playerIDs[i] = p.ID
+	}
+	g, err := game.NewGame(code, playerIDs, snap.HostID)
 	if err != nil {
 		h.sendError(client, err.Error())
 		return
@@ -514,7 +529,7 @@ func (h *Hub) handleVoteCast(client *Client, raw json.RawMessage) {
 }
 
 func (h *Hub) scheduleIfPhaseTransitioned(code string, g *game.Game) {
-	switch g.Phase {
+	switch g.Snapshot().Phase {
 	case game.PhaseDay:
 		h.startDayTimer(code, g)
 	case game.PhaseVote:
@@ -560,16 +575,13 @@ func (h *Hub) deliverGameOut(code string, m game.OutMsg) {
 func (h *Hub) sendToClient(client *Client, typ string, payload interface{}) {
 	select {
 	case <-client.closed:
-		// Client already shut down; drop the message.
 		return
 	default:
 	}
 	select {
 	case client.Send <- OutEnvelope{Type: typ, Payload: payload}:
 	case <-client.closed:
-		// Client closed while we were waiting; drop the message.
 	default:
-		// Drop message if the send buffer is full to avoid blocking the hub.
 	}
 }
 
@@ -615,7 +627,6 @@ func (h *Hub) handleDisconnect(client *Client) {
 
 	client.once.Do(func() {
 		close(client.closed)
-		close(client.Send)
 	})
 
 	if code == "" || replaced {
@@ -682,18 +693,19 @@ func (h *Hub) expireReconnectGrace(playerID, roomCode string) {
 		return
 	}
 
-	// Waiting room: now actually remove the player or close the room.
 	rm, ok := h.roomManager.GetRoom(roomCode)
 	if !ok {
 		return
 	}
-	if rm.HostID == playerID {
+	rmSnap := rm.Snapshot()
+	if rmSnap.HostID == playerID {
 		h.closeRoom(roomCode, "host_disconnected")
 		return
 	}
 	leftRoom, hostLeft, err := h.roomManager.LeaveRoom(roomCode, playerID)
 	if err == nil && !hostLeft {
-		h.broadcastRoom(roomCode, "player_left", map[string]interface{}{"players": leftRoom.Players})
+		leftSnap := leftRoom.Snapshot()
+		h.broadcastRoom(roomCode, "player_left", map[string]interface{}{"players": leftSnap.Players})
 	}
 }
 
@@ -708,11 +720,12 @@ func (h *Hub) cancelPendingReconnect(playerID string) {
 }
 
 func (h *Hub) sendRoomState(client *Client, rm *room.Room) {
+	snap := rm.Snapshot()
 	h.sendToClient(client, "room_state", map[string]interface{}{
-		"roomCode":      rm.Code,
-		"targetPlayers": rm.TargetPlayers,
-		"players":       rm.Players,
-		"canStart":      len(rm.Players) >= rm.TargetPlayers,
+		"roomCode":      snap.Code,
+		"targetPlayers": snap.TargetPlayers,
+		"players":       snap.Players,
+		"canStart":      len(snap.Players) >= snap.TargetPlayers,
 	})
 }
 
@@ -788,7 +801,8 @@ func roleMapForGameOver(s game.Snapshot) map[string]string {
 }
 
 func roomHasPlayer(rm *room.Room, playerID string) bool {
-	for _, p := range rm.Players {
+	snap := rm.Snapshot()
+	for _, p := range snap.Players {
 		if p.ID == playerID {
 			return true
 		}

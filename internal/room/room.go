@@ -207,12 +207,28 @@ func (m *Manager) cleanupLoop() {
 		now := time.Now()
 		for code, room := range m.rooms {
 			room.mu.RLock()
-			if now.Sub(room.LastActivity) > IdleTimeout {
+			idle := room.State != StatePlaying && now.Sub(room.LastActivity) > IdleTimeout
+			room.mu.RUnlock()
+			if idle {
 				delete(m.rooms, code)
 			}
-			room.mu.RUnlock()
 		}
 		m.mu.Unlock()
+	}
+}
+
+func (r *Room) Snapshot() Room {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	players := make([]Player, len(r.Players))
+	copy(players, r.Players)
+	return Room{
+		Code:          r.Code,
+		TargetPlayers: r.TargetPlayers,
+		Players:       players,
+		State:         r.State,
+		HostID:        r.HostID,
+		LastActivity:  r.LastActivity,
 	}
 }
 

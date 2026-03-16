@@ -477,6 +477,9 @@ function handleMessage(msg) {
           }
         } else {
           clearResumeHint()
+          if (view.value === 'vote' && (message === 'already_voted' || message === 'cannot_vote_self' || message === 'invalid_target')) {
+            votedFor.value = ''
+          }
           toast(message)
         }
       }
@@ -574,8 +577,10 @@ function castVote(targetId) {
     toast('not_eligible_voter')
     return
   }
-  votedFor.value = targetId
-  emit('vote_cast', { target: targetId })
+  const ok = emit('vote_cast', { target: targetId })
+  if (ok) {
+    votedFor.value = targetId
+  }
 }
 
 function tryResumeSession(newPlayerId) {
@@ -770,6 +775,7 @@ function resetToLobby() {
   shareUrl.value = ''
   qrDataUrl.value = ''
   votedFor.value = ''
+  voteMode.value = 'guess_wolf'
   myRole.value = ''
   mayorSecret.value = ''
   night.step = 1
