@@ -1,28 +1,9 @@
-```sh
-[GIN] 2026/03/16 - 09:12:32 | 200 |   3.18ms |             ::1 | GET      "/"
-[GIN] 2026/03/16 - 09:12:32 | 200 | 70.413µs |             ::1 | GET      "/.well-known/appspecific/com.chrome.devtools.json"
-[GIN] 2026/03/16 - 09:12:32 | 200 | 313.231µs |             ::1 | GET      "/assets/index-CNmjxQ6r.js"
-[GIN] 2026/03/16 - 09:12:32 | 200 | 100.253µs |             ::1 | GET      "/assets/index-CG0yF-t2.css"
-[GIN] 2026/03/16 - 09:12:47 | 200 | 55.177µs |             ::1 | GET      "/?roomCode=DK5G"
-[GIN] 2026/03/16 - 09:12:47 | 304 | 63.132µs |             ::1 | GET      "/assets/index-CNmjxQ6r.js"
-[GIN] 2026/03/16 - 09:12:47 | 304 | 45.892µs |             ::1 | GET      "/assets/index-CG0yF-t2.css"
-[GIN] 2026/03/16 - 09:12:47 | 304 | 143.942µs |             ::1 | GET      "/.well-known/appspecific/com.chrome.devtools.json"
-[GIN] 2026/03/16 - 09:12:56 | 304 | 139.523µs |             ::1 | GET      "/?roomCode=DK5G"
-[GIN] 2026/03/16 - 09:12:56 | 304 | 132.625µs |             ::1 | GET      "/assets/index-CNmjxQ6r.js"
-[GIN] 2026/03/16 - 09:12:56 | 304 | 60.109µs |             ::1 | GET      "/assets/index-CG0yF-t2.css"
-[GIN] 2026/03/16 - 09:12:56 | 304 | 47.439µs |             ::1 | GET      "/.well-known/appspecific/com.chrome.devtools.json"
-[GIN] 2026/03/16 - 09:13:04 | 304 | 132.069µs |             ::1 | GET      "/?roomCode=DK5G"
-[GIN] 2026/03/16 - 09:13:04 | 304 | 70.439µs |             ::1 | GET      "/assets/index-CNmjxQ6r.js"
-[GIN] 2026/03/16 - 09:13:04 | 304 | 68.638µs |             ::1 | GET      "/assets/index-CG0yF-t2.css"
-[GIN] 2026/03/16 - 09:13:04 | 304 | 141.679µs |             ::1 | GET      "/.well-known/appspecific/com.chrome.devtools.json"
-[GIN] 2026/03/16 - 09:13:32 | 304 | 72.287µs |             ::1 | GET      "/?roomCode=DK5G"
-[GIN] 2026/03/16 - 09:13:32 | 200 |   44.87s |             ::1 | GET      "/ws"
-[GIN] 2026/03/16 - 09:13:32 | 304 | 81.716µs |             ::1 | GET      "/assets/index-CNmjxQ6r.js"
-[GIN] 2026/03/16 - 09:13:32 | 304 |  85.41µs |             ::1 | GET      "/assets/index-CG0yF-t2.css"
-[GIN] 2026/03/16 - 09:13:32 | 304 | 52.778µs |             ::1 | GET      "/.well-known/appspecific/com.chrome.devtools.json"
-[GIN] 2026/03/16 - 09:13:54 | 200 |   49.38s |             ::1 | GET      "/ws"
-[GIN] 2026/03/16 - 09:13:54 | 200 |    1m20s |             ::1 | GET      "/ws"
-[GIN] 2026/03/16 - 09:13:54 | 200 |   57.75s |             ::1 | GET      "/ws"
-```
+pls push the current project to main branch
 
-if any client refresh during the game, all client will crash(drop ws and go back to lobby, pls fix, the client refresh page should rejoin the game.
+---
+
+pls review is any thing left which will jeopadize the game
+
+---
+
+pls run test to see if everything passed
