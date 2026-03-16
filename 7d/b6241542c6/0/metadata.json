@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "7db6241542c6",
+  "session_id": "46aa3b25-29ac-4b60-81f7-a6026fff8b15",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-16T01:21:57.214162866Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "frontend/src/App.vue",
+    "internal/ws/hub.go"
+  ],
+  "agent": "Cursor",
+  "model": "claude-4.6-opus-high",
+  "turn_id": "e5e8e98197ef",
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-16T01:21:57.183619171Z",
+    "agent_lines": 51,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 51,
+    "agent_percentage": 100
+  }
+}
