@@ -74,7 +74,7 @@ curl http://localhost:3000/healthz
 
 ```bash
 chmod +x deploy/push-ttl.sh
-./deploy/push-ttl.sh 2h mytag
+./deploy/push-ttl.sh 2h
 ```
 
 This will:
@@ -84,7 +84,9 @@ This will:
 Then deploy:
 
 ```bash
-kubectl apply -f deploy/deployment.yaml -f deploy/service.yaml
+export KUBECONFIG=~/.kube/tester
+kubectl create ns aco-wolf
+kubectl -n aco-wolf apply -f deploy/deployment.yaml -f deploy/service.yaml
 ```
 
 ## 自動化多人測試（免開 4-6 個瀏覽器）

@@ -568,13 +568,10 @@ func (h *Hub) handlePlayAgain(client *Client) {
 		return
 	}
 
-	// Cancel any scheduled room close from game-over phase.
-	h.mu.Lock()
-	if rt := h.roomTimers[code]; rt != nil && rt.closeCancel != nil {
-		close(rt.closeCancel)
-		rt.closeCancel = nil
-	}
-	h.mu.Unlock()
+	// Stop all timers left over from the previous game so that the next
+	// game's timers can start fresh (dayCancel/voteCancel guards check for
+	// non-nil channels and bail out early).
+	h.stopTimers(code)
 
 	rm, err := h.roomManager.ResetToWaiting(code, client.ID)
 	if err != nil {
