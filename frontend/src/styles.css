@@ -173,12 +173,25 @@ h2 {
   font-size: clamp(1.3rem, 4.6vw, 2.2rem);
   font-weight: 700;
   line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.role-display svg {
+  flex-shrink: 0;
 }
 
 .role-display span {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #ffe2a8;
+}
+
+.player-role-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .hero p {

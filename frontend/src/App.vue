@@ -91,7 +91,10 @@
 
     <section class="panel" v-if="view === 'night'">
       <h2>夜晚階段</h2>
-      <p class="role-display">角色: <span>{{ roleText }}</span></p>
+      <p class="role-display">
+        <component v-if="roleIconMap[effectiveRole]" :is="roleIconMap[effectiveRole]" :size="40" />
+        角色: <span>{{ roleText }}</span>
+      </p>
 
       <article class="glass card" v-if="night.step === 1 && isHost">
         <p>請選擇祕密咒語。</p>
@@ -172,7 +175,10 @@
         <p class="label">角色列表</p>
         <ul class="players">
           <li v-for="p in room.players" :key="p.id">
-            <span>{{ p.nickname }}</span>
+            <span class="player-role-entry">
+              <component v-if="roleIconMap[effectiveRoleOf(p.id)]" :is="roleIconMap[effectiveRoleOf(p.id)]" :size="28" />
+              {{ p.nickname }}
+            </span>
             <span class="mono">{{ roleByPlayer(p.id) }}</span>
           </li>
         </ul>
@@ -189,6 +195,11 @@
 import { computed, reactive, ref, watch } from 'vue'
 import QRCode from 'qrcode'
 import { useSocket } from './composables/useSocket'
+import RoleWerewolf from './icons/RoleWerewolf.vue'
+import RoleSeer from './icons/RoleSeer.vue'
+import RoleVillager from './icons/RoleVillager.vue'
+
+const roleIconMap = { werewolf: RoleWerewolf, seer: RoleSeer, villager: RoleVillager }
 
 const SESSION_KEY = 'wolfword.session'
 const savedSession = loadSession()
@@ -629,6 +640,12 @@ function roleByPlayer(id) {
     return `村長 (${roleName(result.mayorSecret || mayorSecret.value || 'unknown')})`
   }
   return roleName(result.roles[id] || 'unknown')
+}
+
+function effectiveRoleOf(id) {
+  const r = result.roles[id] || ''
+  if (r === 'mayor') return result.mayorSecret || mayorSecret.value || ''
+  return r
 }
 
 function nameById(id) {
