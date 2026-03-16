@@ -1,0 +1,9 @@
+pls deploy as a nodeport svc
+
+---
+
+./deploy/push-ttl.sh 2h aco
+
+---
+
+"./deploy/push-ttl.sh 2h aco" ran, update to nodeport svc
