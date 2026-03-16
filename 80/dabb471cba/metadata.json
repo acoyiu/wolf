@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "80dabb471cba",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "deploy/deployment.yaml",
+    "internal/ws/hub.go",
+    "readme.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/80/dabb471cba/0/metadata.json",
+      "transcript": "/80/dabb471cba/0/full.jsonl",
+      "content_hash": "/80/dabb471cba/0/content_hash.txt",
+      "prompt": "/80/dabb471cba/0/prompt.txt"
+    }
+  ]
+}
