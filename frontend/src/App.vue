@@ -11,13 +11,11 @@
   </div>
 
   <!-- Phase announcement overlay -->
-  <Transition name="toast">
-    <div class="phase-announce" v-if="phaseAnnounce" :key="phaseAnnounce">
-      <div class="phase-announce-backdrop"></div>
-      <div class="phase-announce-text" :class="`phase-announce-text--${phaseAnnounceTheme}`">{{ phaseAnnounceText }}</div>
-      <div class="phase-announce-sub">{{ phaseAnnounceSub }}</div>
-    </div>
-  </Transition>
+  <div class="phase-announce" v-if="phaseAnnounce" :key="phaseAnnounceKey">
+    <div class="phase-announce-backdrop"></div>
+    <div class="phase-announce-text" :class="`phase-announce-text--${phaseAnnounceTheme}`">{{ phaseAnnounceText }}</div>
+    <div class="phase-announce-sub" v-if="phaseAnnounceSub">{{ phaseAnnounceSub }}</div>
+  </div>
 
   <!-- Confetti canvas for result -->
   <canvas ref="confettiCanvas" class="confetti-canvas" v-if="view === 'result'"></canvas>
@@ -352,7 +350,8 @@ const voteProgress = reactive({ voted: 0, total: 0 })
 const result = reactive({ winner: '', reason: '', word: '', roles: {}, mayorSecret: '', votes: {} })
 
 // Phase announcement
-const phaseAnnounce = ref('')
+const phaseAnnounce = ref(false)
+const phaseAnnounceKey = ref(0)
 const phaseAnnounceText = ref('')
 const phaseAnnounceSub = ref('')
 const phaseAnnounceTheme = ref('')
@@ -499,14 +498,16 @@ function generateParticles(phase) {
   particles.value = list
 }
 
-function announcePhase(theme, text, sub) {
+async function announcePhase(theme, text, sub) {
   if (phaseAnnounceTimer) clearTimeout(phaseAnnounceTimer)
-  phaseAnnounce.value = ''
+  phaseAnnounce.value = false
+  await nextTick()
   phaseAnnounceText.value = text
   phaseAnnounceSub.value = sub
   phaseAnnounceTheme.value = theme
-  requestAnimationFrame(() => { phaseAnnounce.value = theme + Date.now() })
-  phaseAnnounceTimer = setTimeout(() => { phaseAnnounce.value = '' }, 1700)
+  phaseAnnounceKey.value++
+  phaseAnnounce.value = true
+  phaseAnnounceTimer = setTimeout(() => { phaseAnnounce.value = false }, 1650)
 }
 
 function triggerScreenShake() {
@@ -681,7 +682,7 @@ function handleMessage(msg) {
       night.revealWord = ''
       nightConfirmed.value = false
       selectedWord.value = ''
-      if (!phaseAnnounce.value) announcePhase('night', '夜晚', '夜幕降臨')
+      announcePhase('night', '夜晚', '夜幕降臨')
       hapticFeedback('phase')
       playSound('phase')
       break

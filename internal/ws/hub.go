@@ -18,6 +18,11 @@ import (
 const (
 	defaultDifficulty     = wordlib.Easy
 	defaultReconnectGrace = 20 * time.Second
+
+	pingInterval   = 15 * time.Second
+	pongWait       = 20 * time.Second
+	writeWait      = 10 * time.Second
+	maxMessageSize = 4096
 )
 
 type Envelope struct {
@@ -120,6 +125,12 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 func (h *Hub) readLoop(client *Client) {
 	defer h.handleDisconnect(client)
 
+	client.Conn.SetReadLimit(maxMessageSize)
+	_ = client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	client.Conn.SetPongHandler(func(string) error {
+		return client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
 	for {
 		_, data, err := client.Conn.ReadMessage()
 		if err != nil {
@@ -137,14 +148,24 @@ func (h *Hub) readLoop(client *Client) {
 }
 
 func (h *Hub) writeLoop(client *Client) {
-	defer client.Conn.Close()
+	ticker := time.NewTicker(pingInterval)
+	defer func() {
+		ticker.Stop()
+		client.Conn.Close()
+	}()
 	for {
 		select {
 		case msg, ok := <-client.Send:
 			if !ok {
 				return
 			}
+			_ = client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := client.Conn.WriteJSON(msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			_ = client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		case <-client.closed:

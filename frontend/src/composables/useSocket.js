@@ -10,6 +10,9 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
  * Connection helper with capped reconnect retries.
  * @param {() => string} urlFactory
  */
+const HEARTBEAT_INTERVAL = 12000
+const HEARTBEAT_TIMEOUT = 5000
+
 export function useSocket(urlFactory) {
   const socket = ref(null)
   const status = ref('disconnected')
@@ -18,6 +21,24 @@ export function useSocket(urlFactory) {
   const errorMessage = ref('')
 
   let manualClose = false
+  let heartbeatTimer = null
+  let heartbeatTimeout = null
+
+  function clearHeartbeat() {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
+    if (heartbeatTimeout) { clearTimeout(heartbeatTimeout); heartbeatTimeout = null }
+  }
+
+  function startHeartbeat(ws) {
+    clearHeartbeat()
+    heartbeatTimer = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN) return
+      ws.send(JSON.stringify({ type: 'ping', payload: {} }))
+      heartbeatTimeout = setTimeout(() => {
+        ws.close()
+      }, HEARTBEAT_TIMEOUT)
+    }, HEARTBEAT_INTERVAL)
+  }
 
   const connect = () => {
     if (socket.value && socket.value.readyState === WebSocket.OPEN) {
@@ -32,9 +53,11 @@ export function useSocket(urlFactory) {
       status.value = 'connected'
       reconnectAttempts.value = 0
       errorMessage.value = ''
+      startHeartbeat(ws)
     }
 
     ws.onmessage = (event) => {
+      if (heartbeatTimeout) { clearTimeout(heartbeatTimeout); heartbeatTimeout = null }
       try {
         const parsed = JSON.parse(event.data)
         lastMessage.value = parsed
@@ -48,14 +71,15 @@ export function useSocket(urlFactory) {
     }
 
     ws.onclose = () => {
+      clearHeartbeat()
       if (manualClose) {
         status.value = 'disconnected'
         return
       }
-      if (reconnectAttempts.value < 3) {
+      if (reconnectAttempts.value < 5) {
         reconnectAttempts.value += 1
         status.value = 'reconnecting'
-        const delay = reconnectAttempts.value * 900
+        const delay = Math.min(reconnectAttempts.value * 1000, 5000)
         window.setTimeout(connect, delay)
       } else {
         status.value = 'failed'
@@ -79,6 +103,7 @@ export function useSocket(urlFactory) {
 
   const close = () => {
     manualClose = true
+    clearHeartbeat()
     if (socket.value) {
       socket.value.close()
     }
