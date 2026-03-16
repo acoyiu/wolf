@@ -292,17 +292,17 @@ func (h *Hub) handleResumeSession(client *Client, raw json.RawMessage) {
 		h.sendError(client, "resume_not_available")
 		return
 	}
+	var oldConn *Client
 	if !hasPending {
-		g := h.games[p.RoomCode]
-		if g == nil || g.Snapshot().Phase == game.PhaseResult {
-			h.mu.Unlock()
-			h.sendError(client, "resume_not_available")
-			return
-		}
 		if existing := h.clients[p.PlayerID]; existing != nil {
-			h.mu.Unlock()
-			h.sendError(client, "resume_in_use")
-			return
+			oldConn = existing
+		} else {
+			g := h.games[p.RoomCode]
+			if g != nil && g.Snapshot().Phase == game.PhaseResult {
+				h.mu.Unlock()
+				h.sendError(client, "resume_not_available")
+				return
+			}
 		}
 	}
 	delete(h.pendingReconnects, p.PlayerID)
@@ -322,6 +322,15 @@ func (h *Hub) handleResumeSession(client *Client, raw json.RawMessage) {
 	h.roomMembers[p.RoomCode][client.ID] = client
 	h.mu.Unlock()
 
+	// Close old connection after maps are updated so handleDisconnect sees
+	// the new client and skips cleanup (replaced=true).
+	if oldConn != nil {
+		oldConn.once.Do(func() {
+			close(oldConn.closed)
+			close(oldConn.Send)
+		})
+		_ = oldConn.Conn.Close()
+	}
 	if hasPending && pending.timer != nil {
 		pending.timer.Stop()
 	}
@@ -332,6 +341,10 @@ func (h *Hub) handleResumeSession(client *Client, raw json.RawMessage) {
 	})
 	h.sendRoomState(client, rm)
 	h.sendGameState(client)
+
+	h.broadcastRoom(p.RoomCode, "player_reconnected", map[string]interface{}{
+		"playerId": client.ID,
+	})
 }
 
 func (h *Hub) handleLeaveRoom(client *Client) {
@@ -581,14 +594,22 @@ func (h *Hub) handleDisconnect(client *Client) {
 	code := client.RoomCode
 
 	h.mu.Lock()
-	delete(h.clients, client.ID)
-	if code != "" {
-		if members, ok := h.roomMembers[code]; ok {
-			delete(members, client.ID)
-			if len(members) == 0 {
-				delete(h.roomMembers, code)
+	// Only remove from maps if this client is still the registered one.
+	// A resumed session may have already replaced this client with a new
+	// connection under the same player ID.
+	replaced := false
+	if current := h.clients[client.ID]; current == client {
+		delete(h.clients, client.ID)
+		if code != "" {
+			if members, ok := h.roomMembers[code]; ok {
+				delete(members, client.ID)
+				if len(members) == 0 {
+					delete(h.roomMembers, code)
+				}
 			}
 		}
+	} else {
+		replaced = true
 	}
 	h.mu.Unlock()
 
@@ -597,7 +618,7 @@ func (h *Hub) handleDisconnect(client *Client) {
 		close(client.Send)
 	})
 
-	if code == "" {
+	if code == "" || replaced {
 		return
 	}
 
@@ -610,13 +631,10 @@ func (h *Hub) handleDisconnect(client *Client) {
 		return
 	}
 
-	// Game is over (result phase) or already cleaned up — just silently detach.
 	if g != nil {
 		return
 	}
 
-	// Waiting room: give the player a reconnect grace (e.g. page refresh)
-	// instead of immediately closing the room or removing them.
 	if _, ok := h.roomManager.GetRoom(code); ok {
 		h.beginReconnectGrace(client.ID, client.Nickname, code)
 		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID})

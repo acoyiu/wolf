@@ -212,6 +212,7 @@ const inviteCodeFromUrl = (new URLSearchParams(window.location.search).get('room
 const joinCode = ref(inviteCodeFromUrl || savedSession?.roomCode || '')
 const toastText = ref('')
 let resumeHintTimerId = 0
+let pendingResumeNewId = ''
 
 const playerId = ref('')
 const myRole = ref('')
@@ -334,10 +335,10 @@ function handleMessage(msg) {
 
   switch (msg.type) {
     case 'connected':
-      playerId.value = payload.playerId || ''
-      tryResumeSession()
+      tryResumeSession(payload.playerId || '')
       break
     case 'session_resumed':
+      pendingResumeNewId = ''
       if (payload.playerId) {
         playerId.value = payload.playerId
       }
@@ -362,6 +363,9 @@ function handleMessage(msg) {
       break
     case 'player_reconnecting':
       toast('player_reconnecting')
+      break
+    case 'player_reconnected':
+      toast('player_reconnected')
       break
     case 'role_assigned':
       myRole.value = payload.role || ''
@@ -445,11 +449,14 @@ function handleMessage(msg) {
       {
         const message = String(payload.message || 'error')
         if (message.startsWith('resume_')) {
+          if (pendingResumeNewId) {
+            playerId.value = pendingResumeNewId
+            pendingResumeNewId = ''
+          }
           const session = loadSession()
           const canFallbackJoin = Boolean(session?.roomCode && session?.nickname)
           clearSession()
           if (canFallbackJoin) {
-            // Clear stale in-memory state before retrying a normal join flow.
             resetToLobby()
             myNickname.value = session.nickname
             joinCode.value = session.roomCode
@@ -571,14 +578,16 @@ function castVote(targetId) {
   emit('vote_cast', { target: targetId })
 }
 
-function tryResumeSession() {
+function tryResumeSession(newPlayerId) {
   const session = loadSession()
   if (!session || !session.playerId || !session.roomCode || !session.nickname) {
+    playerId.value = newPlayerId
     return
   }
   if (!myNickname.value) {
     myNickname.value = session.nickname
   }
+  pendingResumeNewId = newPlayerId
   emit('resume_session', {
     playerId: session.playerId,
     roomCode: session.roomCode,
@@ -697,6 +706,7 @@ function formatToastMessage(message) {
     case 'session_resumed': return '已恢復上一局連線。'
     case 'session_retry_join': return '正在恢復連線...'
     case 'player_reconnecting': return '有玩家正在重新連線，請稍候。'
+    case 'player_reconnected': return '玩家已重新連線。'
     case 'nickname_required': return '請先輸入暱稱。'
     case 'room_code_required': return '請輸入房間代碼。'
     case 'socket_not_connected': return '尚未連線到伺服器。'
