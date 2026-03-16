@@ -3,9 +3,11 @@
   "checkpoint_id": "7db6241542c6",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 2,
+  "checkpoints_count": 1,
   "files_touched": [
     "frontend/src/App.vue",
+    "frontend/src/styles.css",
+    "internal/game/game.go",
     "internal/room/room.go",
     "internal/ws/hub.go"
   ],

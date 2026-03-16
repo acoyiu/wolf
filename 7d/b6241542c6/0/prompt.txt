@@ -1,9 +1,9 @@
-pls push the current project to main branch
+in terms of a Player, what you think can improve the gaming experience?
 
 ---
 
-pls review is any thing left which will jeopadize the game
+pls explain in Chinese
 
 ---
 
-pls run test to see if everything passed
+implement ALL
