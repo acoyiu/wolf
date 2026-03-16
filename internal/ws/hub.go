@@ -611,24 +611,15 @@ func (h *Hub) handleDisconnect(client *Client) {
 	}
 
 	// Game is over (result phase) or already cleaned up — just silently detach.
-	// Do NOT trigger host-disconnect / close-room logic; the game is finished
-	// and other clients should not be booted when someone refreshes.
 	if g != nil {
 		return
 	}
 
-	rm, ok := h.roomManager.GetRoom(code)
-	if !ok {
-		return
-	}
-	if rm.HostID == client.ID {
-		h.closeRoom(code, "host_disconnected")
-		return
-	}
-
-	leftRoom, hostLeft, err := h.roomManager.LeaveRoom(code, client.ID)
-	if err == nil && !hostLeft {
-		h.broadcastRoom(code, "player_left", map[string]interface{}{"players": leftRoom.Players})
+	// Waiting room: give the player a reconnect grace (e.g. page refresh)
+	// instead of immediately closing the room or removing them.
+	if _, ok := h.roomManager.GetRoom(code); ok {
+		h.beginReconnectGrace(client.ID, client.Nickname, code)
+		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID})
 	}
 }
 
@@ -658,13 +649,34 @@ func (h *Hub) expireReconnectGrace(playerID, roomCode string) {
 	h.mu.RLock()
 	g := h.games[roomCode]
 	h.mu.RUnlock()
-	if g == nil || g.Snapshot().Phase == game.PhaseResult {
+
+	if g != nil && g.Snapshot().Phase != game.PhaseResult {
+		// Active game: abort and close room.
+		for _, msg := range g.Abort("player_disconnected") {
+			h.deliverGameOut(roomCode, msg)
+		}
+		h.scheduleRoomClose(roomCode, "game_ended", 2*time.Second)
 		return
 	}
-	for _, msg := range g.Abort("player_disconnected") {
-		h.deliverGameOut(roomCode, msg)
+
+	if g != nil {
+		// Result phase: nothing to do.
+		return
 	}
-	h.scheduleRoomClose(roomCode, "game_ended", 2*time.Second)
+
+	// Waiting room: now actually remove the player or close the room.
+	rm, ok := h.roomManager.GetRoom(roomCode)
+	if !ok {
+		return
+	}
+	if rm.HostID == playerID {
+		h.closeRoom(roomCode, "host_disconnected")
+		return
+	}
+	leftRoom, hostLeft, err := h.roomManager.LeaveRoom(roomCode, playerID)
+	if err == nil && !hostLeft {
+		h.broadcastRoom(roomCode, "player_left", map[string]interface{}{"players": leftRoom.Players})
+	}
 }
 
 func (h *Hub) cancelPendingReconnect(playerID string) {

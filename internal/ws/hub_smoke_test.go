@@ -27,6 +27,8 @@ type wsBot struct {
 	phase       string
 	voteType    string
 	gameOver    bool
+	roomClosed  bool
+	gameAborted bool
 	lastError   string
 	readErr     error
 }
@@ -125,6 +127,10 @@ func (b *wsBot) apply(msg wsOutMsg) {
 	case "game_over":
 		b.phase = "result"
 		b.gameOver = true
+	case "game_aborted":
+		b.gameAborted = true
+	case "room_closed":
+		b.roomClosed = true
 	case "error":
 		if e := payloadString(msg.Payload, "message"); e != "" {
 			b.lastError = e
@@ -211,6 +217,18 @@ func (b *wsBot) GameOver() bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.gameOver
+}
+
+func (b *wsBot) RoomClosed() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.roomClosed
+}
+
+func (b *wsBot) GameAborted() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.gameAborted
 }
 
 func (b *wsBot) LastError() string {
@@ -639,4 +657,290 @@ func TestHubSmokeResumeSession(t *testing.T) {
 
 	// Replace the old bot reference so we can clean up
 	bots[1] = resumed
+}
+
+func TestHubSmokeRefreshDuringDayDoesNotCrashOthers(t *testing.T) {
+	h := NewHub(30*time.Second, 30*time.Second)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", h.HandleWS)
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+
+	bots := []*wsBot{
+		newWSBot(t, wsURL, "D1"),
+		newWSBot(t, wsURL, "D2"),
+		newWSBot(t, wsURL, "D3"),
+		newWSBot(t, wsURL, "D4"),
+	}
+	defer func() {
+		for _, b := range bots {
+			b.Close()
+		}
+	}()
+
+	host := bots[0]
+	host.Send(t, "create_room", map[string]interface{}{
+		"nickname":      host.nickname,
+		"targetPlayers": 4,
+		"difficulty":    "easy",
+	})
+	waitUntil(t, 3*time.Second, "host room created", func() bool {
+		return host.RoomCode() != ""
+	})
+	roomCode := host.RoomCode()
+
+	for i := 1; i < len(bots); i++ {
+		bots[i].Send(t, "join_room", map[string]interface{}{
+			"roomCode": roomCode,
+			"nickname": bots[i].nickname,
+		})
+	}
+	waitUntil(t, 3*time.Second, "all joined", func() bool {
+		for _, b := range bots {
+			if b.PlayersCount() != 4 {
+				return false
+			}
+		}
+		return true
+	})
+
+	host.Send(t, "start_game", map[string]interface{}{})
+	waitUntil(t, 3*time.Second, "roles assigned", func() bool {
+		for _, b := range bots {
+			if b.Role() == "" {
+				return false
+			}
+		}
+		return true
+	})
+
+	waitUntil(t, 3*time.Second, "mayor candidates", func() bool {
+		return host.NightStep() == 1 && len(host.Candidates()) >= 1
+	})
+	host.Send(t, "night_pick_word", map[string]interface{}{"word": host.Candidates()[0]})
+
+	for i := 1; i < len(bots); i++ {
+		bots[i].Send(t, "night_confirm", map[string]interface{}{})
+	}
+	waitUntil(t, 3*time.Second, "step 2", func() bool {
+		return host.NightStep() == 2 || host.Phase() == "day"
+	})
+	for i := 0; i < len(bots); i++ {
+		bots[i].Send(t, "night_confirm", map[string]interface{}{})
+	}
+	waitUntil(t, 3*time.Second, "day phase", func() bool {
+		for _, b := range bots {
+			if b.Phase() != "day" {
+				return false
+			}
+		}
+		return true
+	})
+
+	// --- Simulate a browser refresh: disconnect and quickly reconnect ---
+	refresher := bots[2]
+	savedID := refresher.PlayerID()
+	savedRole := refresher.Role()
+
+	_ = refresher.conn.Close()
+	<-refresher.done
+	time.Sleep(200 * time.Millisecond)
+
+	// Reconnect
+	newBot := newWSBot(t, wsURL, "D3_new")
+	newBot.Send(t, "resume_session", map[string]interface{}{
+		"playerId": savedID,
+		"roomCode": roomCode,
+		"nickname": "D3",
+	})
+	waitUntil(t, 5*time.Second, "resumed gets role", func() bool {
+		return newBot.Role() != ""
+	})
+	if newBot.Role() != savedRole {
+		t.Fatalf("resumed role=%s want %s", newBot.Role(), savedRole)
+	}
+	bots[2] = newBot
+
+	// Wait 2 seconds and check other bots are NOT crashed
+	time.Sleep(2 * time.Second)
+
+	for i, b := range bots {
+		if b.RoomClosed() {
+			t.Fatalf("bot[%d] %s received room_closed after player refresh", i, b.nickname)
+		}
+		if b.GameAborted() {
+			t.Fatalf("bot[%d] %s received game_aborted after player refresh", i, b.nickname)
+		}
+	}
+
+	// Game should still be in day phase
+	for _, b := range bots {
+		if b.Phase() != "day" {
+			t.Fatalf("bot %s phase=%s want day", b.nickname, b.Phase())
+		}
+	}
+
+	// --- Now test HOST refresh ---
+	hostSavedID := host.PlayerID()
+	hostSavedRole := host.Role()
+
+	_ = host.conn.Close()
+	<-host.done
+	time.Sleep(200 * time.Millisecond)
+
+	newHost := newWSBot(t, wsURL, "D1_new")
+	newHost.Send(t, "resume_session", map[string]interface{}{
+		"playerId": hostSavedID,
+		"roomCode": roomCode,
+		"nickname": "D1",
+	})
+	waitUntil(t, 5*time.Second, "host resumed gets role", func() bool {
+		return newHost.Role() != ""
+	})
+	if newHost.Role() != hostSavedRole {
+		t.Fatalf("host resumed role=%s want %s", newHost.Role(), hostSavedRole)
+	}
+	bots[0] = newHost
+
+	time.Sleep(2 * time.Second)
+
+	for i, b := range bots {
+		if b.RoomClosed() {
+			t.Fatalf("bot[%d] %s received room_closed after host refresh", i, b.nickname)
+		}
+		if b.GameAborted() {
+			t.Fatalf("bot[%d] %s received game_aborted after host refresh", i, b.nickname)
+		}
+	}
+
+	// Everyone should still be in day phase
+	for _, b := range bots {
+		if b.Phase() != "day" {
+			t.Fatalf("after host refresh: bot %s phase=%s want day", b.nickname, b.Phase())
+		}
+	}
+
+	// Clean up
+	for _, b := range bots {
+		b.Close()
+	}
+}
+
+func TestHubSmokeRefreshInWaitingRoom(t *testing.T) {
+	h := NewHub(30*time.Second, 30*time.Second)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", h.HandleWS)
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+
+	bots := []*wsBot{
+		newWSBot(t, wsURL, "W1"),
+		newWSBot(t, wsURL, "W2"),
+		newWSBot(t, wsURL, "W3"),
+		newWSBot(t, wsURL, "W4"),
+	}
+	defer func() {
+		for _, b := range bots {
+			b.Close()
+		}
+	}()
+
+	host := bots[0]
+	host.Send(t, "create_room", map[string]interface{}{
+		"nickname":      host.nickname,
+		"targetPlayers": 4,
+		"difficulty":    "easy",
+	})
+	waitUntil(t, 3*time.Second, "host room created", func() bool {
+		return host.RoomCode() != ""
+	})
+	roomCode := host.RoomCode()
+
+	for i := 1; i < len(bots); i++ {
+		bots[i].Send(t, "join_room", map[string]interface{}{
+			"roomCode": roomCode,
+			"nickname": bots[i].nickname,
+		})
+	}
+	waitUntil(t, 3*time.Second, "all joined", func() bool {
+		for _, b := range bots {
+			if b.PlayersCount() != 4 {
+				return false
+			}
+		}
+		return true
+	})
+
+	// --- Host refreshes in waiting room ---
+	hostSavedID := host.PlayerID()
+	_ = host.conn.Close()
+	<-host.done
+	time.Sleep(200 * time.Millisecond)
+
+	// Other players should NOT have received room_closed
+	for i := 1; i < len(bots); i++ {
+		if bots[i].RoomClosed() {
+			t.Fatalf("bot[%d] %s received room_closed after host refresh in waiting room", i, bots[i].nickname)
+		}
+	}
+
+	// Host reconnects and resumes
+	newHost := newWSBot(t, wsURL, "W1_new")
+	newHost.Send(t, "resume_session", map[string]interface{}{
+		"playerId": hostSavedID,
+		"roomCode": roomCode,
+		"nickname": "W1",
+	})
+	waitUntil(t, 5*time.Second, "host resumed in waiting room", func() bool {
+		return newHost.RoomCode() != ""
+	})
+	bots[0] = newHost
+
+	// Verify room still has 4 players
+	waitUntil(t, 3*time.Second, "still 4 players after host resume", func() bool {
+		return newHost.PlayersCount() == 4
+	})
+
+	// --- Non-host refreshes in waiting room ---
+	p2SavedID := bots[2].PlayerID()
+	_ = bots[2].conn.Close()
+	<-bots[2].done
+	time.Sleep(200 * time.Millisecond)
+
+	// Other players should NOT have received room_closed
+	for i, b := range bots {
+		if i == 2 {
+			continue
+		}
+		if b.RoomClosed() {
+			t.Fatalf("bot[%d] %s received room_closed after non-host refresh", i, b.nickname)
+		}
+	}
+
+	// Non-host reconnects and resumes
+	newP2 := newWSBot(t, wsURL, "W3_new")
+	newP2.Send(t, "resume_session", map[string]interface{}{
+		"playerId": p2SavedID,
+		"roomCode": roomCode,
+		"nickname": "W3",
+	})
+	waitUntil(t, 5*time.Second, "non-host resumed in waiting room", func() bool {
+		return newP2.RoomCode() != ""
+	})
+	bots[2] = newP2
+
+	// Verify room still intact
+	waitUntil(t, 3*time.Second, "still 4 players after non-host resume", func() bool {
+		return newP2.PlayersCount() == 4
+	})
+
+	for _, b := range bots {
+		b.Close()
+	}
 }
