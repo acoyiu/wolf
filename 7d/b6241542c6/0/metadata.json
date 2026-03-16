@@ -3,29 +3,31 @@
   "checkpoint_id": "7db6241542c6",
   "session_id": "46aa3b25-29ac-4b60-81f7-a6026fff8b15",
   "strategy": "manual-commit",
-  "created_at": "2026-03-16T02:31:44.443872777Z",
+  "created_at": "2026-03-16T02:44:14.653099719Z",
   "branch": "main",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
-    "internal/ws/hub_smoke_test.go"
+    "frontend/src/App.vue",
+    "frontend/src/styles.css",
+    "main.go"
   ],
   "agent": "Cursor",
   "model": "claude-4.6-opus-high",
-  "turn_id": "bef658859fc3",
-  "checkpoint_transcript_start": 82,
-  "transcript_lines_at_start": 82,
+  "turn_id": "b32ec660eac4",
+  "checkpoint_transcript_start": 120,
+  "transcript_lines_at_start": 120,
   "session_metrics": {
-    "turn_count": 8,
+    "turn_count": 10,
     "context_tokens": 186904,
     "context_window_size": 200000
   },
   "initial_attribution": {
-    "calculated_at": "2026-03-16T02:31:44.381694295Z",
-    "agent_lines": 940,
+    "calculated_at": "2026-03-16T02:44:14.585503916Z",
+    "agent_lines": 1029,
     "human_added": 0,
     "human_modified": 0,
     "human_removed": 0,
-    "total_committed": 940,
+    "total_committed": 1029,
     "agent_percentage": 100
   }
 }
