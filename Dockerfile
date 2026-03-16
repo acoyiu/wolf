@@ -18,11 +18,11 @@ WORKDIR /app
 COPY --from=go-builder /out/wolfword /app/wolfword
 COPY --from=frontend-builder /src/frontend/dist /app/frontend/dist
 
-ENV PORT=3000
+ENV PORT=3001
 ENV DAY_TIMEOUT_SEC=300
 ENV VOTE_TIMEOUT_SEC=60
 
-EXPOSE 3000
+EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD wget -q -O - http://127.0.0.1:${PORT}/healthz >/dev/null || exit 1
 
 USER app

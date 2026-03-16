@@ -11,7 +11,7 @@ TAG="${2:-}"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${DIR}/.." && pwd)"
-MANIFEST="${ROOT_DIR}/k8s/deployment.yaml"
+MANIFEST="${DIR}/deployment.yaml"
 
 if [ ! -f "${ROOT_DIR}/Dockerfile" ]; then
   echo "error: Dockerfile not found at ${ROOT_DIR}/Dockerfile"
@@ -43,4 +43,4 @@ echo "Image pushed:"
 echo "  ${IMAGE}"
 echo
 echo "Deploy:"
-echo "  kubectl apply -f ${ROOT_DIR}/k8s/deployment.yaml -f ${ROOT_DIR}/k8s/service.yaml"
+echo "  kubectl apply -f ${DIR}/deployment.yaml -f ${DIR}/service.yaml"

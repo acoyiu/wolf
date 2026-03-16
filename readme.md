@@ -79,12 +79,12 @@ chmod +x deploy/push-ttl.sh
 
 This will:
 - build and push image to `ttl.sh`
-- patch `k8s/deployment.yaml` image field
+- patch `deploy/deployment.yaml` image field
 
 Then deploy:
 
 ```bash
-kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml
+kubectl apply -f deploy/deployment.yaml -f deploy/service.yaml
 ```
 
 ## 自動化多人測試（免開 4-6 個瀏覽器）

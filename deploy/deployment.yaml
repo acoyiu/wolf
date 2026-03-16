@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: wolfword
+  namespace: aco-wolf
   labels:
     app: wolfword
 spec:
@@ -16,14 +17,14 @@ spec:
     spec:
       containers:
         - name: wolfword
-          image: ttl.sh/wolfword-aco-20260313:2h
-          imagePullPolicy: IfNotPresent
+          image: ttl.sh/wolfword-aco:2h
+          imagePullPolicy: Always
           ports:
-            - containerPort: 3000
+            - containerPort: 3001
               name: http
           env:
             - name: PORT
-              value: "3000"
+              value: "3001"
             - name: DAY_TIMEOUT_SEC
               value: "300"
             - name: VOTE_TIMEOUT_SEC
