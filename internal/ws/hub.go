@@ -62,10 +62,11 @@ type Hub struct {
 }
 
 type roomTimer struct {
-	dayCancel  chan struct{}
-	voteCancel chan struct{}
-	dayStart   time.Time
-	voteStart  time.Time
+	dayCancel   chan struct{}
+	voteCancel  chan struct{}
+	closeCancel chan struct{}
+	dayStart    time.Time
+	voteStart   time.Time
 }
 
 type pendingReconnect struct {
@@ -546,6 +547,14 @@ func (h *Hub) handlePlayAgain(client *Client) {
 		return
 	}
 
+	// Cancel any scheduled room close from game-over phase.
+	h.mu.Lock()
+	if rt := h.roomTimers[code]; rt != nil && rt.closeCancel != nil {
+		close(rt.closeCancel)
+		rt.closeCancel = nil
+	}
+	h.mu.Unlock()
+
 	rm, err := h.roomManager.ResetToWaiting(code, client.ID)
 	if err != nil {
 		h.sendError(client, err.Error())
@@ -905,11 +914,27 @@ func (h *Hub) closeRoom(code, reason string) {
 }
 
 func (h *Hub) scheduleRoomClose(code, reason string, delay time.Duration) {
+	h.mu.Lock()
+	rt := h.roomTimers[code]
+	if rt == nil {
+		rt = &roomTimer{}
+		h.roomTimers[code] = rt
+	}
+	if rt.closeCancel != nil {
+		close(rt.closeCancel)
+	}
+	cancel := make(chan struct{})
+	rt.closeCancel = cancel
+	h.mu.Unlock()
+
 	go func() {
 		t := time.NewTimer(delay)
 		defer t.Stop()
-		<-t.C
-		h.closeRoom(code, reason)
+		select {
+		case <-t.C:
+			h.closeRoom(code, reason)
+		case <-cancel:
+		}
 	}()
 }
 
@@ -932,6 +957,9 @@ func (h *Hub) stopTimers(code string) {
 	}
 	if rt.voteCancel != nil {
 		close(rt.voteCancel)
+	}
+	if rt.closeCancel != nil {
+		close(rt.closeCancel)
 	}
 }
 

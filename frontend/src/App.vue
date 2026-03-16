@@ -415,7 +415,7 @@ const resultReasonText = computed(() => formatReasonCode(result.reason || ''))
 
 const nightFlavorText = computed(() => {
   if (night.step === 1) return '夜幕降臨…村長正在選擇祕密咒語，請耐心等待。'
-  return '知情者正在確認咒語…請閉上眼睛，保持安靜。'
+  return '知情者正在確認咒語…請耐心等待。'
 })
 
 const tokenStats = computed(() => [
@@ -681,7 +681,7 @@ function handleMessage(msg) {
       night.revealWord = ''
       nightConfirmed.value = false
       selectedWord.value = ''
-      if (!phaseAnnounce.value) announcePhase('night', '夜晚', '閉上眼睛')
+      if (!phaseAnnounce.value) announcePhase('night', '夜晚', '夜幕降臨')
       hapticFeedback('phase')
       playSound('phase')
       break
