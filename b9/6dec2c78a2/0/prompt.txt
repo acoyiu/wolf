@@ -1,0 +1,48 @@
+1: wolf cannot vote suppose.
+2: can the list display better?
+
+---
+
+or update to a logic that, each round end, 強制 return to lobby, because:
+- 1, the restore logic you can't handle well still, i know the game restore in same scene is very complicated, so that many game not restore, but reload the screen.
+- 2, and next host can also start another so that no need to have logic to change 村長
+
+what do you think?
+
+---
+
+"The trade-off is players need to re-join a room manually", Why, so that the player accidential refresh need rejoin?? that's abnormal, no, shouldn't happen
+
+---
+
+pls go through test, if success pls pust to aco-wolf ns, kubeconfig = ~/.kube/tester
+
+---
+
+"回到大廳", should return to root(/), not url with the query, so that they will stuck in last game code
+
+---
+
+why after "回到大廳", the "建立房間" is missing?
+
+---
+
+I think at the game end page/moment, can cease the websocket. which is no longer needed.
+
+---
+
+why in the game end screen, it will count down auto return to lobby? suppose no need
+
+---
+
+1: can it be reverse order?
+2: is the index too small?
+3: is it possible the make the mobile UI always 100vh, so the whole ui /frame ui is not scollable?
+
+---
+
+this part is no needed, as anyone is allow to ask.
+
+---
+
+先知和狼人沒有"夜晚" 的 動畫?

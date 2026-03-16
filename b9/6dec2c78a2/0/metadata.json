@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "b96dec2c78a2",
+  "session_id": "371b8725-2d79-4899-82ef-7d8877904d67",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-16T14:48:33.518241346Z",
+  "branch": "main",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "frontend/src/App.vue",
+    "frontend/src/composables/useSocket.js",
+    "frontend/src/styles.css",
+    "internal/game/game.go",
+    "internal/game/game_test.go",
+    "internal/room/room.go",
+    "internal/ws/hub.go",
+    "internal/ws/hub_smoke_test.go"
+  ],
+  "agent": "Cursor",
+  "model": "claude-4.6-opus-high",
+  "turn_id": "d0680955d20c",
+  "checkpoint_transcript_start": 23,
+  "transcript_lines_at_start": 23,
+  "session_metrics": {
+    "turn_count": 14,
+    "context_tokens": 182187,
+    "context_window_size": 200000
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-16T14:48:33.481833417Z",
+    "agent_lines": 106,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 106,
+    "agent_percentage": 100
+  }
+}

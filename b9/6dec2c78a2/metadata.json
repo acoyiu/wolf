@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.5.0",
+  "checkpoint_id": "b96dec2c78a2",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "frontend/src/App.vue",
+    "frontend/src/composables/useSocket.js",
+    "frontend/src/styles.css",
+    "internal/game/game.go",
+    "internal/game/game_test.go",
+    "internal/room/room.go",
+    "internal/ws/hub.go",
+    "internal/ws/hub_smoke_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b9/6dec2c78a2/0/metadata.json",
+      "transcript": "/b9/6dec2c78a2/0/full.jsonl",
+      "content_hash": "/b9/6dec2c78a2/0/content_hash.txt",
+      "prompt": "/b9/6dec2c78a2/0/prompt.txt"
+    }
+  ]
+}
