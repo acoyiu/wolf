@@ -1,9 +1,1 @@
-in terms of a Player, what you think can improve the gaming experience?
-
----
-
-pls explain in Chinese
-
----
-
-implement ALL
+pls test throughfully
