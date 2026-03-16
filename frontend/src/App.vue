@@ -1,5 +1,28 @@
 <template>
-  <main class="shell">
+  <!-- Phase-aware background -->
+  <div class="phase-bg" :class="`phase-bg--${view}`"></div>
+
+  <!-- Floating particles -->
+  <div class="particles" v-if="showParticles">
+    <div v-for="p in particles" :key="p.id" class="particle"
+      :style="{ left: p.x + '%', bottom: '-10px', width: p.size + 'px', height: p.size + 'px',
+        background: p.color, animationDuration: p.duration + 's', animationDelay: p.delay + 's', opacity: p.opacity }">
+    </div>
+  </div>
+
+  <!-- Phase announcement overlay -->
+  <Transition name="toast">
+    <div class="phase-announce" v-if="phaseAnnounce" :key="phaseAnnounce">
+      <div class="phase-announce-backdrop"></div>
+      <div class="phase-announce-text" :class="`phase-announce-text--${phaseAnnounceTheme}`">{{ phaseAnnounceText }}</div>
+      <div class="phase-announce-sub">{{ phaseAnnounceSub }}</div>
+    </div>
+  </Transition>
+
+  <!-- Confetti canvas for result -->
+  <canvas ref="confettiCanvas" class="confetti-canvas" v-if="view === 'result'"></canvas>
+
+  <main class="shell" :class="{ shake: screenShake }">
     <section class="glass panel status-bar">
       <div>
         <p class="label">連線狀態</p>
@@ -75,9 +98,15 @@
         <article class="glass card">
           <p class="label">玩家</p>
           <ul class="players">
-            <li v-for="p in room.players" :key="p.id">
-              <span>{{ p.nickname }}</span>
-              <span class="chip" v-if="p.isHost">房主</span>
+            <li v-for="(p, idx) in room.players" :key="p.id">
+              <div class="player-info">
+                <div class="player-avatar" :class="`player-avatar--${idx % 10}`">
+                  <div class="avatar-ring"></div>
+                  {{ p.nickname.charAt(0) }}
+                </div>
+                <span class="player-name">{{ p.nickname }}</span>
+              </div>
+              <span class="chip host-chip" v-if="p.isHost">房主</span>
             </li>
           </ul>
         </article>
@@ -91,10 +120,16 @@
 
     <section class="panel" v-if="view === 'night'">
       <h2>夜晚階段</h2>
-      <p class="role-badge">
-        <component v-if="roleIconMap[effectiveRole]" :is="roleIconMap[effectiveRole]" :size="24" />
-        <span>{{ roleText }}</span>
-      </p>
+
+      <div class="role-card" :class="{ 'role-card--revealed': roleRevealed }">
+        <div class="role-card-inner">
+          <component v-if="roleIconMap[effectiveRole]" :is="roleIconMap[effectiveRole]" :size="48" />
+          <div class="role-card-info">
+            <span class="role-card-label">你的身份</span>
+            <span class="role-card-name">{{ roleText }}</span>
+          </div>
+        </div>
+      </div>
 
       <article class="glass card" v-if="night.step === 1 && isHost">
         <p>請選擇祕密咒語。</p>
@@ -121,9 +156,16 @@
     <section class="panel" v-if="view === 'day'">
       <div class="panel-head">
         <h2>白天階段</h2>
-        <div class="timer-display" v-if="timer.remainingMs > 0">
-          <span class="timer-icon">⏱</span>
-          <span class="timer-value" :class="{ 'timer-urgent': timer.remainingMs <= 30000 }">{{ formatTimer(timer.remainingMs) }}</span>
+        <div class="timer-ring-container" v-if="timer.remainingMs > 0">
+          <svg class="timer-ring-svg" viewBox="0 0 60 60">
+            <circle class="timer-ring-bg" cx="30" cy="30" r="26" />
+            <circle class="timer-ring-progress"
+              :class="timer.remainingMs <= 30000 ? 'timer-ring-progress--urgent' : 'timer-ring-progress--normal'"
+              cx="30" cy="30" r="26"
+              :stroke-dasharray="timerCircumference"
+              :stroke-dashoffset="timerDayOffset" />
+          </svg>
+          <div class="timer-ring-text" :class="{ 'timer-ring-text--urgent': timer.remainingMs <= 30000 }">{{ formatTimer(timer.remainingMs) }}</div>
         </div>
       </div>
       <p class="role-badge">
@@ -162,7 +204,9 @@
         </div>
         <p class="label">歷史紀錄</p>
         <div class="history">
-          <span class="chip token-chip" :class="`token ${tokenClass(token)}`" v-for="(token, idx) in day.history" :key="idx">{{ tokenLabel(token) }}</span>
+          <TransitionGroup name="token-pop">
+            <span class="chip token-chip" :class="`token ${tokenClass(token)}`" v-for="(token, idx) in day.history" :key="'h'+idx">{{ tokenLabel(token) }}</span>
+          </TransitionGroup>
           <span class="label" v-if="day.history.length === 0">目前還沒有回應。</span>
         </div>
       </article>
@@ -171,9 +215,16 @@
     <section class="panel" v-if="view === 'vote'">
       <div class="panel-head">
         <h2>投票階段</h2>
-        <div class="timer-display" v-if="timer.remainingMs > 0">
-          <span class="timer-icon">⏱</span>
-          <span class="timer-value" :class="{ 'timer-urgent': timer.remainingMs <= 15000 }">{{ formatTimer(timer.remainingMs) }}</span>
+        <div class="timer-ring-container" v-if="timer.remainingMs > 0">
+          <svg class="timer-ring-svg" viewBox="0 0 60 60">
+            <circle class="timer-ring-bg" cx="30" cy="30" r="26" />
+            <circle class="timer-ring-progress"
+              :class="timer.remainingMs <= 15000 ? 'timer-ring-progress--urgent' : 'timer-ring-progress--normal'"
+              cx="30" cy="30" r="26"
+              :stroke-dasharray="timerCircumference"
+              :stroke-dashoffset="timerVoteOffset" />
+          </svg>
+          <div class="timer-ring-text" :class="{ 'timer-ring-text--urgent': timer.remainingMs <= 15000 }">{{ formatTimer(timer.remainingMs) }}</div>
         </div>
       </div>
       <p class="role-badge">
@@ -181,35 +232,53 @@
         <span>{{ roleText }}</span>
       </p>
       <p>{{ votePrompt }}</p>
-      <p class="label vote-progress" v-if="voteProgress.total > 0">已投票: {{ voteProgress.voted }} / {{ voteProgress.total }}</p>
+
+      <div v-if="voteProgress.total > 0">
+        <p class="label vote-progress">已投票: {{ voteProgress.voted }} / {{ voteProgress.total }}</p>
+        <div class="vote-progress-bar">
+          <div class="vote-progress-fill" :style="{ width: voteProgressPct + '%' }"></div>
+        </div>
+      </div>
+
       <p class="label" v-if="!canVoteInCurrentMode">此回合僅狼人需要投票，請等待。</p>
       <div class="pill-grid" v-if="canVoteInCurrentMode">
-        <button class="btn pill" v-for="p in voteCandidates" :key="p.id" @click="castVote(p.id)" :disabled="votedFor === p.id">
+        <button class="btn pill" :class="{ 'pill--voted': votedFor === p.id }"
+          v-for="p in voteCandidates" :key="p.id" @click="castVote(p.id)" :disabled="!!votedFor">
           {{ p.nickname }}
+          <span class="vote-check" v-if="votedFor === p.id">✓</span>
         </button>
       </div>
       <p v-if="votedFor && canVoteInCurrentMode" class="label">你已投給: {{ nameById(votedFor) }}</p>
     </section>
 
     <section class="panel" v-if="view === 'result'">
-      <h2>遊戲結果</h2>
-      <article class="glass card">
-        <p class="winner">勝方: {{ winnerText }}</p>
-        <p>原因: <span class="mono">{{ resultReasonText }}</span></p>
-        <p>咒語: <strong>{{ result.word || '-' }}</strong></p>
+      <article class="glass card result-hero">
+        <p class="winner-label">勝利陣營</p>
+        <p class="winner-text" :class="result.winner === 'villagers' ? 'winner-text--villagers' : 'winner-text--werewolves'">
+          {{ winnerText }}
+        </p>
+        <p class="result-reason">{{ resultReasonText }}</p>
+        <span class="result-word">{{ result.word || '-' }}</span>
       </article>
+
       <article class="glass card">
         <p class="label">角色列表</p>
         <ul class="players">
-          <li v-for="p in room.players" :key="p.id">
-            <span class="player-role-entry">
-              <component v-if="roleIconMap[effectiveRoleOf(p.id)]" :is="roleIconMap[effectiveRoleOf(p.id)]" :size="28" />
-              {{ p.nickname }}
-            </span>
+          <li v-for="(p, idx) in room.players" :key="p.id">
+            <div class="player-info">
+              <div class="player-avatar" :class="`player-avatar--${idx % 10}`">
+                {{ p.nickname.charAt(0) }}
+              </div>
+              <span class="player-role-entry">
+                <component v-if="roleIconMap[effectiveRoleOf(p.id)]" :is="roleIconMap[effectiveRoleOf(p.id)]" :size="28" />
+                {{ p.nickname }}
+              </span>
+            </div>
             <span class="mono">{{ roleByPlayer(p.id) }}</span>
           </li>
         </ul>
       </article>
+
       <article class="glass card" v-if="hasVoteData">
         <p class="label">投票明細</p>
         <ul class="players">
@@ -220,6 +289,7 @@
           </li>
         </ul>
       </article>
+
       <div class="actions" style="justify-content:center">
         <button class="btn primary" @click="playAgain" v-if="isHost">再來一局</button>
         <p class="label" v-else style="text-align:center">等待房主開始下一局...</p>
@@ -233,7 +303,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, reactive, ref, watch, onBeforeUnmount, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useSocket } from './composables/useSocket'
 import RoleWerewolf from './icons/RoleWerewolf.vue'
@@ -265,43 +335,49 @@ const voteMode = ref('guess_wolf')
 const nightConfirmed = ref(false)
 const selectedWord = ref('')
 const daySpeakerIdx = ref(-1)
+const roleRevealed = ref(false)
+const screenShake = ref(false)
+const confettiCanvas = ref(null)
 
-const room = reactive({
-  roomCode: '',
-  targetPlayers: 0,
-  players: [],
-})
-
-const night = reactive({
-  step: 1,
-  candidates: [],
-  revealWord: '',
-})
-
-const day = reactive({
-  remaining: { yes: 48, no: 48, maybe: 1, close: 1, far: 1, correct: 1 },
-  history: [],
-})
-
-const timer = reactive({
-  phase: '',
-  remainingMs: 0,
-})
+const room = reactive({ roomCode: '', targetPlayers: 0, players: [] })
+const night = reactive({ step: 1, candidates: [], revealWord: '' })
+const day = reactive({ remaining: { yes: 48, no: 48, maybe: 1, close: 1, far: 1, correct: 1 }, history: [] })
+const timer = reactive({ phase: '', remainingMs: 0 })
 let timerIntervalId = 0
 let timerTargetTime = 0
+let dayTotalMs = 0
+let voteTotalMs = 0
 
-const voteProgress = reactive({
-  voted: 0,
-  total: 0,
+const voteProgress = reactive({ voted: 0, total: 0 })
+const result = reactive({ winner: '', reason: '', word: '', roles: {}, mayorSecret: '', votes: {} })
+
+// Phase announcement
+const phaseAnnounce = ref('')
+const phaseAnnounceText = ref('')
+const phaseAnnounceSub = ref('')
+const phaseAnnounceTheme = ref('')
+let phaseAnnounceTimer = 0
+
+// Particles
+const particles = ref([])
+const showParticles = computed(() => view.value === 'night' || view.value === 'day' || view.value === 'result')
+
+// Timer ring calculations
+const timerCircumference = 2 * Math.PI * 26
+const timerDayOffset = computed(() => {
+  if (dayTotalMs <= 0) return 0
+  const pct = Math.max(0, timer.remainingMs / dayTotalMs)
+  return timerCircumference * (1 - pct)
+})
+const timerVoteOffset = computed(() => {
+  if (voteTotalMs <= 0) return 0
+  const pct = Math.max(0, timer.remainingMs / voteTotalMs)
+  return timerCircumference * (1 - pct)
 })
 
-const result = reactive({
-  winner: '',
-  reason: '',
-  word: '',
-  roles: {},
-  mayorSecret: '',
-  votes: {},
+const voteProgressPct = computed(() => {
+  if (voteProgress.total <= 0) return 0
+  return Math.min(100, (voteProgress.voted / voteProgress.total) * 100)
 })
 
 const wsUrl = () => {
@@ -353,48 +429,34 @@ const tokenStats = computed(() => [
 
 const tokenSummaryItems = computed(() => {
   const used = {}
-  for (const token of day.history) {
-    used[token] = (used[token] || 0) + 1
-  }
+  for (const token of day.history) { used[token] = (used[token] || 0) + 1 }
   const items = []
   const order = ['yes', 'no', 'maybe', 'close', 'far', 'correct']
   const labels = { yes: '是', no: '否', maybe: '或許', close: '接近', far: '差太多', correct: '正確' }
   for (const key of order) {
-    if (used[key]) {
-      items.push({ key, label: labels[key], className: key, value: used[key] })
-    }
+    if (used[key]) items.push({ key, label: labels[key], className: key, value: used[key] })
   }
   return items
 })
 
 onBeforeUnmount(() => {
   stopLocalTimer()
+  if (phaseAnnounceTimer) clearTimeout(phaseAnnounceTimer)
 })
 
 watch(shareUrl, async (value) => {
-  if (!value) {
-    qrDataUrl.value = ''
-    return
-  }
-  try {
-    qrDataUrl.value = await QRCode.toDataURL(value, { width: 180, margin: 1 })
-  } catch {
-    qrDataUrl.value = ''
-  }
+  if (!value) { qrDataUrl.value = ''; return }
+  try { qrDataUrl.value = await QRCode.toDataURL(value, { width: 180, margin: 1 }) } catch { qrDataUrl.value = '' }
 })
 
 watch(errorMessage, (message) => {
   if (!message) return
   toast(message)
-  if (message === 'reconnect_failed') {
-    resetToLobby()
-  }
+  if (message === 'reconnect_failed') resetToLobby()
 })
 
 watch(reconnectAttempts, (attempt) => {
-  if (attempt > 0) {
-    toast(`connection_lost_retry_${attempt}`)
-  }
+  if (attempt > 0) toast(`connection_lost_retry_${attempt}`)
 })
 
 watch(lastMessage, (msg) => {
@@ -402,16 +464,171 @@ watch(lastMessage, (msg) => {
   handleMessage(msg)
 })
 
-watch([playerId, myNickname, () => room.roomCode], () => {
-  persistSession()
+watch([playerId, myNickname, () => room.roomCode], () => { persistSession() })
+
+// Generate particles when view changes
+watch(view, (v) => {
+  generateParticles(v)
 })
+
+function generateParticles(phase) {
+  const count = 20
+  const list = []
+  for (let i = 0; i < count; i++) {
+    const p = {
+      id: i,
+      x: Math.random() * 100,
+      size: 2 + Math.random() * 4,
+      duration: 8 + Math.random() * 12,
+      delay: Math.random() * 8,
+      opacity: 0.3 + Math.random() * 0.5,
+      color: 'rgba(255,255,255,0.6)',
+    }
+    if (phase === 'night') {
+      p.color = `rgba(${160 + Math.random() * 80}, ${140 + Math.random() * 60}, 255, ${0.4 + Math.random() * 0.4})`
+    } else if (phase === 'day') {
+      p.color = `rgba(255, ${180 + Math.random() * 60}, ${60 + Math.random() * 60}, ${0.3 + Math.random() * 0.4})`
+    } else if (phase === 'result') {
+      p.color = `rgba(255, ${200 + Math.random() * 55}, ${80 + Math.random() * 80}, ${0.4 + Math.random() * 0.4})`
+    }
+    list.push(p)
+  }
+  particles.value = list
+}
+
+function announcePhase(theme, text, sub) {
+  if (phaseAnnounceTimer) clearTimeout(phaseAnnounceTimer)
+  phaseAnnounce.value = ''
+  phaseAnnounceText.value = text
+  phaseAnnounceSub.value = sub
+  phaseAnnounceTheme.value = theme
+  requestAnimationFrame(() => { phaseAnnounce.value = theme + Date.now() })
+  phaseAnnounceTimer = setTimeout(() => { phaseAnnounce.value = '' }, 1700)
+}
+
+function triggerScreenShake() {
+  screenShake.value = true
+  setTimeout(() => { screenShake.value = false }, 500)
+}
+
+function playSound(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    gain.gain.value = 0.08
+
+    switch (type) {
+      case 'phase':
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(440, ctx.currentTime)
+        osc.frequency.linearRampToValueAtTime(660, ctx.currentTime + 0.15)
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3)
+        osc.start(); osc.stop(ctx.currentTime + 0.3)
+        break
+      case 'reveal':
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(330, ctx.currentTime)
+        osc.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.3)
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5)
+        osc.start(); osc.stop(ctx.currentTime + 0.5)
+        break
+      case 'token':
+        osc.type = 'triangle'
+        osc.frequency.value = 600
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1)
+        osc.start(); osc.stop(ctx.currentTime + 0.1)
+        break
+      case 'correct':
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(523, ctx.currentTime)
+        osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1)
+        osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2)
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.4)
+        osc.start(); osc.stop(ctx.currentTime + 0.4)
+        break
+      case 'vote':
+        osc.type = 'sine'
+        osc.frequency.value = 500
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.08)
+        osc.start(); osc.stop(ctx.currentTime + 0.08)
+        break
+      case 'result':
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(440, ctx.currentTime)
+        osc.frequency.setValueAtTime(554, ctx.currentTime + 0.15)
+        osc.frequency.setValueAtTime(659, ctx.currentTime + 0.3)
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.45)
+        gain.gain.setValueAtTime(0.1, ctx.currentTime)
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.7)
+        osc.start(); osc.stop(ctx.currentTime + 0.7)
+        break
+    }
+    setTimeout(() => ctx.close(), 1000)
+  } catch { /* Audio API not available */ }
+}
+
+function launchConfetti() {
+  nextTick(() => {
+    const canvas = confettiCanvas.value
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+    const isVillagerWin = result.winner === 'villagers'
+    const colors = isVillagerWin
+      ? ['#66f1a7', '#45d3b4', '#ffd072', '#fff', '#a8e6ff']
+      : ['#ff5e6f', '#ff8c9c', '#9b59b6', '#c0392b', '#fff']
+
+    const pieces = []
+    for (let i = 0; i < 100; i++) {
+      pieces.push({
+        x: Math.random() * canvas.width,
+        y: -20 - Math.random() * 200,
+        w: 6 + Math.random() * 6,
+        h: 4 + Math.random() * 4,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        vx: (Math.random() - 0.5) * 4,
+        vy: 2 + Math.random() * 4,
+        rotation: Math.random() * 360,
+        rotSpeed: (Math.random() - 0.5) * 10,
+        opacity: 1,
+      })
+    }
+
+    let frame = 0
+    function draw() {
+      frame++
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      let alive = false
+      for (const p of pieces) {
+        p.x += p.vx
+        p.y += p.vy
+        p.vy += 0.05
+        p.rotation += p.rotSpeed
+        if (frame > 60) p.opacity = Math.max(0, p.opacity - 0.008)
+        if (p.opacity <= 0 || p.y > canvas.height + 20) continue
+        alive = true
+        ctx.save()
+        ctx.translate(p.x, p.y)
+        ctx.rotate((p.rotation * Math.PI) / 180)
+        ctx.globalAlpha = p.opacity
+        ctx.fillStyle = p.color
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h)
+        ctx.restore()
+      }
+      if (alive) requestAnimationFrame(draw)
+    }
+    requestAnimationFrame(draw)
+  })
+}
 
 function handleMessage(msg) {
   const payload = msg.payload || {}
 
-  if (msg.type !== 'error') {
-    clearResumeHint()
-  }
+  if (msg.type !== 'error') clearResumeHint()
 
   switch (msg.type) {
     case 'connected':
@@ -419,12 +636,8 @@ function handleMessage(msg) {
       break
     case 'session_resumed':
       pendingResumeNewId = ''
-      if (payload.playerId) {
-        playerId.value = payload.playerId
-      }
-      if (payload.roomCode) {
-        room.roomCode = payload.roomCode
-      }
+      if (payload.playerId) playerId.value = payload.playerId
+      if (payload.roomCode) room.roomCode = payload.roomCode
       toast('session_resumed')
       break
     case 'room_created':
@@ -452,6 +665,8 @@ function handleMessage(msg) {
       break
     case 'role_assigned':
       myRole.value = payload.role || ''
+      roleRevealed.value = true
+      setTimeout(() => { roleRevealed.value = false }, 900)
       break
     case 'mayor_secret':
       mayorSecret.value = payload.secretRole || ''
@@ -463,7 +678,9 @@ function handleMessage(msg) {
       night.revealWord = ''
       nightConfirmed.value = false
       selectedWord.value = ''
+      if (!phaseAnnounce.value) announcePhase('night', '夜晚', '閉上眼睛')
       hapticFeedback('phase')
+      playSound('phase')
       break
     case 'night_reveal':
       view.value = 'night'
@@ -472,6 +689,7 @@ function handleMessage(msg) {
       nightConfirmed.value = false
       selectedWord.value = ''
       hapticFeedback('reveal')
+      playSound('reveal')
       break
     case 'phase_change':
       if (payload.phase === 'day') {
@@ -480,33 +698,37 @@ function handleMessage(msg) {
         nightConfirmed.value = false
         selectedWord.value = ''
         initSpeakerOrder()
+        announcePhase('day', '白天', '開始提問')
         hapticFeedback('phase')
+        playSound('phase')
       }
       break
     case 'timer_sync':
       syncTimer(payload)
       break
     case 'day_state':
-      if (payload.remaining) {
-        day.remaining = payload.remaining
-      }
-      if (Array.isArray(payload.history)) {
-        day.history = payload.history
-      }
+      if (payload.remaining) day.remaining = payload.remaining
+      if (Array.isArray(payload.history)) day.history = payload.history
       break
     case 'mayor_response':
       day.history.push(payload.token)
-      if (payload.remaining) {
-        day.remaining = payload.remaining
-      }
+      if (payload.remaining) day.remaining = payload.remaining
       hapticFeedback('token')
+      if (payload.token === 'correct') {
+        triggerScreenShake()
+        playSound('correct')
+      } else {
+        playSound('token')
+      }
       break
     case 'word_guessed':
       voteMode.value = 'guess_seer'
       voteProgress.voted = 0
       voteProgress.total = 0
       view.value = 'vote'
+      announcePhase('vote', '投票', '指認先知')
       hapticFeedback('phase')
+      playSound('phase')
       break
     case 'time_up':
     case 'tokens_depleted':
@@ -514,7 +736,9 @@ function handleMessage(msg) {
       voteProgress.voted = 0
       voteProgress.total = 0
       view.value = 'vote'
+      announcePhase('vote', '投票', '找出狼人')
       hapticFeedback('phase')
+      playSound('phase')
       break
     case 'vote_state':
       voteMode.value = payload.voteType === 'guess_seer' ? 'guess_seer' : 'guess_wolf'
@@ -527,6 +751,7 @@ function handleMessage(msg) {
         voteProgress.total = payload.totalVoters || 0
       }
       hapticFeedback('token')
+      playSound('vote')
       break
     case 'vote_result':
       break
@@ -540,7 +765,10 @@ function handleMessage(msg) {
       view.value = 'result'
       stopLocalTimer()
       clearSession()
+      announcePhase('result', result.winner === 'villagers' ? '村民勝利' : '狼人勝利', '')
       hapticFeedback('result')
+      playSound('result')
+      setTimeout(() => { launchConfetti() }, 1600)
       break
     case 'game_aborted':
       toast(payload.reason || 'game_aborted')
@@ -566,19 +794,10 @@ function handleMessage(msg) {
             myNickname.value = session.nickname
             joinCode.value = session.roomCode
             scheduleResumeHint()
-            const ok = emit('join_room', {
-              roomCode: session.roomCode,
-              nickname: session.nickname,
-            })
-            if (!ok) {
-              clearResumeHint()
-              toast('reconnect_failed')
-              resetToLobby()
-            }
+            const ok = emit('join_room', { roomCode: session.roomCode, nickname: session.nickname })
+            if (!ok) { clearResumeHint(); toast('reconnect_failed'); resetToLobby() }
           } else {
-            clearResumeHint()
-            toast('reconnect_failed')
-            resetToLobby()
+            clearResumeHint(); toast('reconnect_failed'); resetToLobby()
           }
         } else {
           clearResumeHint()
@@ -612,60 +831,31 @@ function createRoom() {
 function joinRoom() {
   if (!myNickname.value) return toast('nickname_required')
   if (!joinCode.value) return toast('room_code_required')
-  emit('join_room', {
-    roomCode: joinCode.value.toUpperCase(),
-    nickname: myNickname.value,
-  })
+  emit('join_room', { roomCode: joinCode.value.toUpperCase(), nickname: myNickname.value })
 }
 
-function leaveRoom() {
-  emit('leave_room', {})
-  resetToLobby()
-}
-
-function startGame() {
-  emit('start_game', {})
-}
-
-function playAgain() {
-  emit('play_again', {})
-}
+function leaveRoom() { emit('leave_room', {}); resetToLobby() }
+function startGame() { emit('start_game', {}) }
+function playAgain() { emit('play_again', {}) }
 
 function pickWord(word) {
-  if (selectedWord.value) {
-    return
-  }
+  if (selectedWord.value) return
   const ok = emit('night_pick_word', { word })
-  if (ok) {
-    selectedWord.value = word
-  }
+  if (ok) selectedWord.value = word
 }
 
 function nightConfirm() {
-  if (nightConfirmed.value) {
-    return
-  }
+  if (nightConfirmed.value) return
   const ok = emit('night_confirm', {})
-  if (ok) {
-    nightConfirmed.value = true
-  }
+  if (ok) nightConfirmed.value = true
 }
 
-function sendToken(token) {
-  emit('day_token', { token })
-}
+function sendToken(token) { emit('day_token', { token }) }
 
 function tokenClass(token) {
   switch (token) {
-    case 'yes':
-    case 'no':
-    case 'maybe':
-    case 'close':
-    case 'far':
-    case 'correct':
-      return token
-    default:
-      return ''
+    case 'yes': case 'no': case 'maybe': case 'close': case 'far': case 'correct': return token
+    default: return ''
   }
 }
 
@@ -682,14 +872,9 @@ function tokenLabel(token) {
 }
 
 function castVote(targetId) {
-  if (!canVoteInCurrentMode.value) {
-    toast('not_eligible_voter')
-    return
-  }
+  if (!canVoteInCurrentMode.value) { toast('not_eligible_voter'); return }
   const ok = emit('vote_cast', { target: targetId })
-  if (ok) {
-    votedFor.value = targetId
-  }
+  if (ok) votedFor.value = targetId
 }
 
 function tryResumeSession(newPlayerId) {
@@ -698,55 +883,32 @@ function tryResumeSession(newPlayerId) {
     playerId.value = newPlayerId
     return
   }
-  if (!myNickname.value) {
-    myNickname.value = session.nickname
-  }
+  if (!myNickname.value) myNickname.value = session.nickname
   pendingResumeNewId = newPlayerId
-  emit('resume_session', {
-    playerId: session.playerId,
-    roomCode: session.roomCode,
-    nickname: session.nickname,
-  })
+  emit('resume_session', { playerId: session.playerId, roomCode: session.roomCode, nickname: session.nickname })
 }
 
 function persistSession() {
-  if (!playerId.value || !myNickname.value || !room.roomCode) {
-    return
-  }
-  const session = {
-    playerId: playerId.value,
-    roomCode: room.roomCode,
-    nickname: myNickname.value,
-  }
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  if (!playerId.value || !myNickname.value || !room.roomCode) return
+  window.localStorage.setItem(SESSION_KEY, JSON.stringify({
+    playerId: playerId.value, roomCode: room.roomCode, nickname: myNickname.value,
+  }))
 }
 
 function loadSession() {
   try {
     const raw = window.localStorage.getItem(SESSION_KEY)
-    if (!raw) {
-      return null
-    }
+    if (!raw) return null
     const parsed = JSON.parse(raw)
-    return {
-      playerId: String(parsed.playerId || ''),
-      roomCode: String(parsed.roomCode || '').toUpperCase(),
-      nickname: String(parsed.nickname || ''),
-    }
-  } catch {
-    return null
-  }
+    return { playerId: String(parsed.playerId || ''), roomCode: String(parsed.roomCode || '').toUpperCase(), nickname: String(parsed.nickname || '') }
+  } catch { return null }
 }
 
-function clearSession() {
-  window.localStorage.removeItem(SESSION_KEY)
-}
+function clearSession() { window.localStorage.removeItem(SESSION_KEY) }
 
 function emit(type, payload) {
   const ok = send(type, payload)
-  if (!ok) {
-    toast('socket_not_connected')
-  }
+  if (!ok) toast('socket_not_connected')
   return ok
 }
 
@@ -780,17 +942,13 @@ function nameById(id) {
 
 function formatReconnecting(payload) {
   const name = payload?.nickname || nameById(payload?.playerId || '')
-  if (name && name !== payload?.playerId) {
-    return `${name} 正在重新連線，請稍候。`
-  }
+  if (name && name !== payload?.playerId) return `${name} 正在重新連線，請稍候。`
   return '有玩家正在重新連線，請稍候。'
 }
 
 function formatReconnected(payload) {
   const name = payload?.nickname || nameById(payload?.playerId || '')
-  if (name && name !== payload?.playerId) {
-    return `${name} 已重新連線。`
-  }
+  if (name && name !== payload?.playerId) return `${name} 已重新連線。`
   return '玩家已重新連線。'
 }
 
@@ -799,23 +957,20 @@ function syncTimer(payload) {
   timer.phase = payload.phase || ''
   timer.remainingMs = ms
   timerTargetTime = Date.now() + ms
+  if (payload.phase === 'day' && (dayTotalMs === 0 || ms > dayTotalMs)) dayTotalMs = ms
+  if (payload.phase === 'vote' && (voteTotalMs === 0 || ms > voteTotalMs)) voteTotalMs = ms
   stopLocalTimer()
   if (ms > 0) {
     timerIntervalId = window.setInterval(() => {
       const remaining = Math.max(0, timerTargetTime - Date.now())
       timer.remainingMs = remaining
-      if (remaining <= 0) {
-        stopLocalTimer()
-      }
+      if (remaining <= 0) stopLocalTimer()
     }, 250)
   }
 }
 
 function stopLocalTimer() {
-  if (timerIntervalId) {
-    window.clearInterval(timerIntervalId)
-    timerIntervalId = 0
-  }
+  if (timerIntervalId) { window.clearInterval(timerIntervalId); timerIntervalId = 0 }
 }
 
 function formatTimer(ms) {
@@ -843,55 +998,34 @@ function hapticFeedback(type) {
   try {
     if (navigator.vibrate) {
       switch (type) {
-        case 'phase':
-          navigator.vibrate([100, 50, 100])
-          break
-        case 'reveal':
-          navigator.vibrate([200])
-          break
-        case 'token':
-          navigator.vibrate([50])
-          break
-        case 'result':
-          navigator.vibrate([100, 80, 100, 80, 200])
-          break
+        case 'phase': navigator.vibrate([100, 50, 100]); break
+        case 'reveal': navigator.vibrate([200]); break
+        case 'token': navigator.vibrate([50]); break
+        case 'result': navigator.vibrate([100, 80, 100, 80, 200]); break
       }
     }
-  } catch {
-    // Vibration API not available
-  }
+  } catch { /* Vibration API not available */ }
 }
 
 function toast(message) {
   const text = formatToastMessage(message)
   toastText.value = text
-  window.setTimeout(() => {
-    if (toastText.value === text) {
-      toastText.value = ''
-    }
-  }, 2500)
+  window.setTimeout(() => { if (toastText.value === text) toastText.value = '' }, 2500)
 }
 
 function scheduleResumeHint() {
   clearResumeHint()
-  resumeHintTimerId = window.setTimeout(() => {
-    resumeHintTimerId = 0
-    toast('session_retry_join')
-  }, 1000)
+  resumeHintTimerId = window.setTimeout(() => { resumeHintTimerId = 0; toast('session_retry_join') }, 1000)
 }
 
 function clearResumeHint() {
-  if (!resumeHintTimerId) {
-    return
-  }
+  if (!resumeHintTimerId) return
   window.clearTimeout(resumeHintTimerId)
   resumeHintTimerId = 0
 }
 
 function formatToastMessage(message) {
-  if (typeof message !== 'string') {
-    return String(message)
-  }
+  if (typeof message !== 'string') return String(message)
   if (message.startsWith('connection_lost_retry_')) {
     const attempt = message.replace('connection_lost_retry_', '')
     return `連線中斷，正在重試（第 ${attempt} 次）`
@@ -935,9 +1069,7 @@ function formatToastMessage(message) {
     case 'player_disconnected': return '有玩家斷線，遊戲已中止。'
     case 'reconnect_failed': return '重新連線失敗，已回到大廳。'
     default:
-      if (/^[a-z0-9_]+$/i.test(message)) {
-        return '操作失敗，請稍後再試。'
-      }
+      if (/^[a-z0-9_]+$/i.test(message)) return '操作失敗，請稍後再試。'
       return message
   }
 }
@@ -976,6 +1108,8 @@ function resetGameState() {
   voteProgress.voted = 0
   voteProgress.total = 0
   daySpeakerIdx.value = -1
+  dayTotalMs = 0
+  voteTotalMs = 0
   stopLocalTimer()
   timer.phase = ''
   timer.remainingMs = 0

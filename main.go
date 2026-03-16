@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	port := envOrDefault("PORT", "3000")
+	port := envOrDefault("PORT", "3001")
 	dayTimeout := envSeconds("DAY_TIMEOUT_SEC", 300)
 	voteTimeout := envSeconds("VOTE_TIMEOUT_SEC", 60)
 
