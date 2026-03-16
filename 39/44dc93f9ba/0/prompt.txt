@@ -1,0 +1,11 @@
+export KUBECONFIG=~/.kube/tester
+
+create namespace as "aco-wolf", give me the deployment yaml, replica 1 (for prevent ws issue). and svc yaml
+
+---
+
+"aco-20260316" can use fixed name, otherwise need update yaml and sh every time
+
+---
+
+I have move d the yamls in to deploy folder, pls update everything to match
