@@ -521,6 +521,53 @@ select option { color: var(--ink); background: var(--parchment); }
   color: #5a3010;
 }
 
+.chip.offline-chip {
+  background: linear-gradient(135deg, rgba(140, 80, 80, 0.5), rgba(100, 50, 50, 0.4));
+  border-color: #a06060;
+  color: #ffd0d0;
+  font-size: 0.75rem;
+}
+.chip.offline-chip.small {
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+}
+
+/* ── Offline player styling ── */
+.player-offline {
+  opacity: 0.45;
+}
+
+/* ── Reconnect overlay ── */
+.reconnect-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 10, 5, 0.85);
+  backdrop-filter: blur(6px);
+}
+.reconnect-card {
+  text-align: center;
+  padding: 2rem 1.5rem;
+  max-width: 340px;
+  width: 90%;
+}
+.reconnect-card h2 {
+  margin-bottom: 0.6rem;
+  color: #ffa0a0;
+}
+.reconnect-card p {
+  margin-bottom: 1.2rem;
+  color: var(--ink-light);
+}
+.reconnect-card .btn {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.6rem;
+}
+
 /* ── Role card with flip ── */
 .role-card {
   perspective: 800px;

@@ -36,6 +36,17 @@
       </div>
     </section>
 
+    <!-- Reconnect overlay for in-game disconnection -->
+    <section class="reconnect-overlay" v-if="showReconnectOverlay">
+      <div class="reconnect-card glass card">
+        <h2>連線中斷</h2>
+        <p v-if="status === 'reconnecting'">重新連線中… (第 {{ reconnectAttempts }} 次)</p>
+        <p v-else>連線失敗</p>
+        <button class="btn primary" @click="rejoinGame">重新加入</button>
+        <button class="btn" @click="returnToLobby">回到大廳</button>
+      </div>
+    </section>
+
     <section class="panel hero" v-if="view === 'lobby'">
       <h1>Wolfword</h1>
       <p>面對面遊玩，每人一支手機，同步進行。</p>
@@ -96,7 +107,7 @@
         <article class="glass card">
           <p class="label">玩家</p>
           <ul class="players">
-            <li v-for="(p, idx) in room.players" :key="p.id">
+            <li v-for="(p, idx) in room.players" :key="p.id" :class="{ 'player-offline': p.online === false }">
               <div class="player-info">
                 <div class="player-avatar" :class="`player-avatar--${idx % 10}`">
                   <div class="avatar-ring"></div>
@@ -104,7 +115,8 @@
                 </div>
                 <span class="player-name">{{ p.nickname }}</span>
               </div>
-              <span class="chip host-chip" v-if="p.isHost">房主</span>
+              <span class="chip offline-chip" v-if="p.online === false">離線</span>
+              <span class="chip host-chip" v-else-if="p.isHost">房主</span>
             </li>
           </ul>
         </article>
@@ -260,7 +272,7 @@
       <article class="glass card">
         <p class="label">角色列表</p>
         <ul class="players">
-          <li v-for="(p, idx) in room.players" :key="p.id">
+          <li v-for="(p, idx) in room.players" :key="p.id" :class="{ 'player-offline': p.online === false }">
             <div class="player-info">
               <div class="player-avatar" :class="`player-avatar--${idx % 10}`">
                 {{ p.nickname.charAt(0) }}
@@ -268,6 +280,7 @@
               <span class="player-role-entry">
                 <component v-if="roleIconMap[effectiveRoleOf(p.id)]" :is="roleIconMap[effectiveRoleOf(p.id)]" :size="28" />
                 {{ p.nickname }}
+                <span class="chip offline-chip small" v-if="p.online === false">離線</span>
               </span>
             </div>
             <span class="mono">{{ roleByPlayer(p.id) }}</span>
@@ -399,6 +412,7 @@ const canStart = computed(() => isHost.value && room.players.length >= room.targ
 const roleText = computed(() => (myRole.value === 'mayor' ? `村長 (${roleName(mayorSecret.value || 'unknown')})` : roleName(myRole.value || 'unknown')))
 const effectiveRole = computed(() => (myRole.value === 'mayor' ? (mayorSecret.value || '') : myRole.value))
 const voteCandidates = computed(() => room.players.filter((p) => p.id !== playerId.value))
+const showReconnectOverlay = computed(() => ['night', 'day', 'vote'].includes(view.value) && status.value !== 'connected')
 const votePrompt = computed(() => (voteMode.value === 'guess_seer' ? '狼人正在投票指認先知。' : '全體玩家投票找出狼人。'))
 const canVoteInCurrentMode = computed(() => {
   if (voteMode.value === 'guess_seer') return effectiveRole.value === 'werewolf'
@@ -671,10 +685,15 @@ function handleMessage(msg) {
       }
       break
     case 'player_reconnecting':
+      if (payload.players) hydrateRoom(payload)
       toast(formatReconnecting(payload))
       break
     case 'player_reconnected':
+      if (payload.players) hydrateRoom(payload)
       toast(formatReconnected(payload))
+      break
+    case 'player_offline':
+      if (payload.players) hydrateRoom(payload)
       break
     case 'role_assigned':
       myRole.value = payload.role || ''
@@ -804,7 +823,13 @@ function handleMessage(msg) {
           const session = loadSession()
           const canFallbackJoin = Boolean(session?.roomCode && session?.nickname)
           clearSession()
-          if (canFallbackJoin) {
+          const inGame = ['night', 'day', 'vote'].includes(view.value)
+          if (canFallbackJoin && inGame) {
+            myNickname.value = session.nickname
+            joinCode.value = session.roomCode
+            const ok = emit('rejoin_room', { roomCode: session.roomCode, nickname: session.nickname })
+            if (!ok) { toast('reconnect_failed'); resetToLobby() }
+          } else if (canFallbackJoin) {
             resetToLobby()
             myNickname.value = session.nickname
             joinCode.value = session.roomCode
@@ -816,10 +841,14 @@ function handleMessage(msg) {
           }
         } else {
           clearResumeHint()
-          if (view.value === 'vote' && (message === 'already_voted' || message === 'cannot_vote_self' || message === 'invalid_target')) {
+          if (message === 'game_already_started' && myNickname.value && joinCode.value) {
+            emit('rejoin_room', { roomCode: joinCode.value, nickname: myNickname.value })
+          } else if (view.value === 'vote' && (message === 'already_voted' || message === 'cannot_vote_self' || message === 'invalid_target')) {
             votedFor.value = ''
+            toast(message)
+          } else {
+            toast(message)
           }
-          toast(message)
         }
       }
       break
@@ -836,9 +865,11 @@ function hydrateRoom(payload) {
 
 function createRoom() {
   if (!myNickname.value) return toast('nickname_required')
+  const n = Number(targetPlayers.value)
+  if (!n || n < 4 || n > 10) return toast('invalid_player_count')
   emit('create_room', {
     nickname: myNickname.value,
-    targetPlayers: Math.min(10, Math.max(4, Number(targetPlayers.value) || 6)),
+    targetPlayers: n,
     difficulty: difficulty.value,
   })
 }
@@ -852,6 +883,15 @@ function joinRoom() {
 function leaveRoom() { emit('leave_room', {}); resetToLobby() }
 function startGame() { emit('start_game', {}) }
 function returnToLobby() { resetToLobby() }
+
+function rejoinGame() {
+  const nick = myNickname.value
+  const code = room.roomCode || joinCode.value
+  if (!nick || !code) { resetToLobby(); return }
+  connectSocket()
+  // After reconnect, tryResumeSession will fire automatically.
+  // If that fails, the error handler will try rejoin_room.
+}
 
 function pickWord(word) {
   if (selectedWord.value) return
@@ -1039,6 +1079,7 @@ function formatToastMessage(message) {
     case 'session_resumed': return '已恢復上一局連線。'
     case 'session_retry_join': return '正在恢復連線...'
     case 'nickname_required': return '請先輸入暱稱。'
+    case 'invalid_player_count': return '玩家人數需介於 4 到 10 人。'
     case 'room_code_required': return '請輸入房間代碼。'
     case 'socket_not_connected': return '尚未連線到伺服器。'
     case 'room_not_found': return '找不到房間，請確認代碼。'
@@ -1047,7 +1088,7 @@ function formatToastMessage(message) {
     case 'player_not_found': return '找不到玩家資料，請重新加入。'
     case 'host_only': return '只有房主可以執行這個操作。'
     case 'not_enough_players': return '玩家人數不足，無法開始。'
-    case 'game_already_started': return '遊戲已開始。'
+    case 'game_already_started': return '遊戲已開始，嘗試重新加入中…'
     case 'game_not_found': return '目前沒有進行中的遊戲。'
     case 'word_library_unavailable': return '詞庫暫時不可用，請稍後再試。'
     case 'mayor_only': return '只有村長可以執行這個操作。'
@@ -1067,7 +1108,7 @@ function formatToastMessage(message) {
     case 'host_disconnected': return '房主已離線，房間已關閉。'
     case 'room_closed': return '房間已關閉。'
     case 'game_ended': return '本局已結束。'
-    case 'player_disconnected': return '有玩家斷線，遊戲已中止。'
+    case 'player_disconnected': return '有玩家斷線，等候重新連線。'
     case 'reconnect_failed': return '重新連線失敗，已回到大廳。'
     default:
       if (/^[a-z0-9_]+$/i.test(message)) return '操作失敗，請稍後再試。'
@@ -1081,7 +1122,7 @@ function formatReasonCode(reason) {
     case 'word_guessed_seer_safe': return '猜中咒語後，狼人未找出先知。'
     case 'word_missed_wolf_caught': return '未猜中咒語，但村民成功抓到狼人。'
     case 'word_missed_wolf_safe': return '未猜中咒語，狼人成功躲過投票。'
-    case 'player_disconnected': return '有玩家斷線未能及時重連。'
+    case 'player_disconnected': return '有玩家離線，遊戲繼續進行。'
     case 'host_disconnected': return '房主離線，房間已關閉。'
     case 'game_ended': return '本局已結束。'
     default: return reason || '-'

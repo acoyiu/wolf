@@ -182,6 +182,8 @@ func (h *Hub) dispatch(client *Client, in Envelope) {
 		h.handleJoinRoom(client, in.Payload)
 	case "resume_session":
 		h.handleResumeSession(client, in.Payload)
+	case "rejoin_room":
+		h.handleRejoinRoom(client, in.Payload)
 	case "leave_room":
 		h.handleLeaveRoom(client)
 	case "start_game":
@@ -368,6 +370,8 @@ func (h *Hub) handleResumeSession(client *Client, raw json.RawMessage) {
 		pending.timer.Stop()
 	}
 
+	rm.SetPlayerOnline(client.ID, true)
+
 	h.sendToClient(client, "session_resumed", map[string]interface{}{
 		"playerId": client.ID,
 		"roomCode": client.RoomCode,
@@ -375,8 +379,90 @@ func (h *Hub) handleResumeSession(client *Client, raw json.RawMessage) {
 	h.sendRoomState(client, rm)
 	h.sendGameState(client)
 
+	snap := rm.Snapshot()
 	h.broadcastRoom(p.RoomCode, "player_reconnected", map[string]interface{}{
 		"playerId": client.ID,
+		"players":  snap.Players,
+	})
+}
+
+type rejoinRoomPayload struct {
+	RoomCode string `json:"roomCode"`
+	Nickname string `json:"nickname"`
+}
+
+func (h *Hub) handleRejoinRoom(client *Client, raw json.RawMessage) {
+	var p rejoinRoomPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		h.sendError(client, "invalid_payload")
+		return
+	}
+	p.RoomCode = strings.ToUpper(strings.TrimSpace(p.RoomCode))
+	p.Nickname = strings.TrimSpace(p.Nickname)
+	if p.RoomCode == "" || p.Nickname == "" {
+		h.sendError(client, "invalid_payload")
+		return
+	}
+
+	h.mu.Lock()
+	rm, ok := h.roomManager.GetRoom(p.RoomCode)
+	if !ok {
+		h.mu.Unlock()
+		h.sendError(client, "room_not_found")
+		return
+	}
+
+	oldPlayerID, found := rm.FindPlayerByNickname(p.Nickname)
+	if !found {
+		h.mu.Unlock()
+		h.sendError(client, "player_not_found")
+		return
+	}
+
+	// Cancel any pending reconnect for the old player
+	if pending, hasPending := h.pendingReconnects[oldPlayerID]; hasPending {
+		if pending.timer != nil {
+			pending.timer.Stop()
+		}
+		delete(h.pendingReconnects, oldPlayerID)
+	}
+
+	// Close old connection if it exists
+	var oldConn *Client
+	if existing := h.clients[oldPlayerID]; existing != nil {
+		oldConn = existing
+	}
+
+	// Swap identity
+	delete(h.clients, client.ID)
+	client.ID = oldPlayerID
+	client.Nickname = p.Nickname
+	client.RoomCode = p.RoomCode
+	h.clients[client.ID] = client
+	if _, ok := h.roomMembers[p.RoomCode]; !ok {
+		h.roomMembers[p.RoomCode] = make(map[string]*Client)
+	}
+	h.roomMembers[p.RoomCode][client.ID] = client
+	h.mu.Unlock()
+
+	if oldConn != nil {
+		oldConn.once.Do(func() { close(oldConn.closed) })
+		_ = oldConn.Conn.Close()
+	}
+
+	rm.SetPlayerOnline(client.ID, true)
+
+	h.sendToClient(client, "session_resumed", map[string]interface{}{
+		"playerId": client.ID,
+		"roomCode": client.RoomCode,
+	})
+	h.sendRoomState(client, rm)
+	h.sendGameState(client)
+
+	rejoinSnap := rm.Snapshot()
+	h.broadcastRoom(p.RoomCode, "player_reconnected", map[string]interface{}{
+		"playerId": client.ID,
+		"players":  rejoinSnap.Players,
 	})
 }
 
@@ -657,12 +743,20 @@ func (h *Hub) handleDisconnect(client *Client) {
 		return
 	}
 
+	rm, rmOk := h.roomManager.GetRoom(code)
 	h.mu.RLock()
 	g := h.games[code]
 	h.mu.RUnlock()
 	if g != nil && g.Snapshot().Phase != game.PhaseResult {
+		if rmOk {
+			rm.SetPlayerOnline(client.ID, false)
+		}
 		h.beginReconnectGrace(client.ID, client.Nickname, code)
-		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID, "nickname": client.Nickname})
+		payload := map[string]interface{}{"playerId": client.ID, "nickname": client.Nickname}
+		if rmOk {
+			payload["players"] = rm.Snapshot().Players
+		}
+		h.broadcastRoom(code, "player_reconnecting", payload)
 		return
 	}
 
@@ -670,7 +764,7 @@ func (h *Hub) handleDisconnect(client *Client) {
 		return
 	}
 
-	if _, ok := h.roomManager.GetRoom(code); ok {
+	if rmOk {
 		h.beginReconnectGrace(client.ID, client.Nickname, code)
 		h.broadcastRoom(code, "player_reconnecting", map[string]interface{}{"playerId": client.ID, "nickname": client.Nickname})
 	}
@@ -704,11 +798,16 @@ func (h *Hub) expireReconnectGrace(playerID, roomCode string) {
 	h.mu.RUnlock()
 
 	if g != nil && g.Snapshot().Phase != game.PhaseResult {
-		// Active game: abort and close room.
-		for _, msg := range g.Abort("player_disconnected") {
-			h.deliverGameOut(roomCode, msg)
+		// Active game: keep player offline, do NOT abort.
+		// The game continues; the player can rejoin later.
+		var players interface{}
+		if rm, ok := h.roomManager.GetRoom(roomCode); ok {
+			players = rm.Snapshot().Players
 		}
-		h.scheduleRoomClose(roomCode, "game_ended", 2*time.Second)
+		h.broadcastRoom(roomCode, "player_offline", map[string]interface{}{
+			"playerId": playerID,
+			"players":  players,
+		})
 		return
 	}
 

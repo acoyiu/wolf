@@ -20,6 +20,7 @@ type Player struct {
 	ID       string `json:"id"`
 	Nickname string `json:"nickname"`
 	IsHost   bool   `json:"isHost"`
+	Online   bool   `json:"online"`
 }
 
 type RoomState string
@@ -61,7 +62,7 @@ func (m *Manager) CreateRoom(playerID, nickname string, targetPlayers int) (*Roo
 	room := &Room{
 		Code:          code,
 		TargetPlayers: targetPlayers,
-		Players:       []Player{{ID: playerID, Nickname: nickname, IsHost: true}},
+		Players:       []Player{{ID: playerID, Nickname: nickname, IsHost: true, Online: true}},
 		State:         StateWaiting,
 		HostID:        playerID,
 		LastActivity:  time.Now(),
@@ -92,7 +93,7 @@ func (m *Manager) JoinRoom(code, playerID, nickname string) (*Room, error) {
 			return nil, fmt.Errorf("nickname_already_taken")
 		}
 	}
-	room.Players = append(room.Players, Player{ID: playerID, Nickname: nickname, IsHost: false})
+	room.Players = append(room.Players, Player{ID: playerID, Nickname: nickname, IsHost: false, Online: true})
 	room.LastActivity = time.Now()
 	return room, nil
 }
@@ -246,4 +247,26 @@ func (r *Room) PlayerCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.Players)
+}
+
+func (r *Room) SetPlayerOnline(playerID string, online bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.Players {
+		if r.Players[i].ID == playerID {
+			r.Players[i].Online = online
+			return
+		}
+	}
+}
+
+func (r *Room) FindPlayerByNickname(nickname string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.Players {
+		if p.Nickname == nickname {
+			return p.ID, true
+		}
+	}
+	return "", false
 }
