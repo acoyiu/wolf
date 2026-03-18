@@ -141,6 +141,16 @@
         </div>
       </div>
 
+      <article class="glass card night-vision" v-if="knownWerewolves.length > 0 && effectiveRole === 'werewolf'">
+        <p class="vision-label">🐺 你的狼人同伴</p>
+        <p class="vision-names">{{ knownWerewolfNames.join('、') || '無（你是唯一的狼人）' }}</p>
+      </article>
+
+      <article class="glass card night-vision" v-if="knownWerewolves.length > 0 && effectiveRole === 'seer'">
+        <p class="vision-label">👁️ 你看見的狼人</p>
+        <p class="vision-names">{{ knownWerewolfNames.join('、') }}</p>
+      </article>
+
       <article class="glass card" v-if="night.step === 1 && isHost">
         <p>請選擇祕密咒語。</p>
         <p class="label" v-if="selectedWord">已選擇: {{ selectedWord }}。等待其他玩家...</p>
@@ -349,6 +359,7 @@ let pendingAction = null  // { type, payload } to execute after connected
 const playerId = ref('')
 const myRole = ref('')
 const mayorSecret = ref('')
+const knownWerewolves = ref([])  // werewolf IDs known to seer or wolf teammates
 const view = ref('lobby')
 const shareUrl = ref('')
 const qrDataUrl = ref('')
@@ -429,6 +440,10 @@ const isHost = computed(() => room.players.some((p) => p.id === playerId.value &
 const canStart = computed(() => isHost.value && room.players.length >= room.targetPlayers)
 const roleText = computed(() => (myRole.value === 'mayor' ? `村長 (${roleName(mayorSecret.value || 'unknown')})` : roleName(myRole.value || 'unknown')))
 const effectiveRole = computed(() => (myRole.value === 'mayor' ? (mayorSecret.value || '') : myRole.value))
+const knownWerewolfNames = computed(() => knownWerewolves.value.map((id) => {
+  const p = room.players.find((player) => player.id === id)
+  return p ? p.nickname : id
+}))
 const voteCandidates = computed(() => room.players.filter((p) => p.id !== playerId.value))
 const showReconnectOverlay = computed(() => ['night', 'day', 'vote'].includes(view.value) && status.value !== 'connected')
 const votePrompt = computed(() => (voteMode.value === 'guess_seer' ? '狼人正在投票指認先知。' : '全體玩家投票找出狼人。'))
@@ -810,6 +825,7 @@ function handleMessage(msg) {
       break
     case 'role_assigned':
       myRole.value = payload.role || ''
+      knownWerewolves.value = payload.werewolves || []
       roleRevealed.value = true
       setTimeout(() => { roleRevealed.value = false }, 900)
       break

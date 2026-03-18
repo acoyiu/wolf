@@ -861,12 +861,25 @@ func (h *Hub) sendGameState(client *Client) {
 	}
 	s := g.Snapshot()
 	role := roleForPlayer(s, client.ID)
+	werewolfIDs := werewolfIDsFromSnapshot(s)
 
 	if client.ID == s.MayorID {
-		h.sendToClient(client, "role_assigned", map[string]interface{}{"role": "mayor"})
+		payload := map[string]interface{}{"role": "mayor"}
+		if s.MayorSecret == game.RoleWerewolf {
+			payload["werewolves"] = filterOutID(werewolfIDs, client.ID)
+		} else if s.MayorSecret == game.RoleSeer {
+			payload["werewolves"] = werewolfIDs
+		}
+		h.sendToClient(client, "role_assigned", payload)
 		h.sendToClient(client, "mayor_secret", map[string]interface{}{"secretRole": string(s.MayorSecret)})
 	} else {
-		h.sendToClient(client, "role_assigned", map[string]interface{}{"role": string(role)})
+		payload := map[string]interface{}{"role": string(role)}
+		if role == game.RoleWerewolf {
+			payload["werewolves"] = filterOutID(werewolfIDs, client.ID)
+		} else if role == game.RoleSeer {
+			payload["werewolves"] = werewolfIDs
+		}
+		h.sendToClient(client, "role_assigned", payload)
 	}
 
 	switch s.Phase {
@@ -936,6 +949,26 @@ func roleForPlayer(s game.Snapshot, playerID string) game.Role {
 		return s.MayorSecret
 	}
 	return s.Roles[playerID]
+}
+
+func werewolfIDsFromSnapshot(s game.Snapshot) []string {
+	var ids []string
+	for _, id := range s.PlayerIDs {
+		if roleForPlayer(s, id) == game.RoleWerewolf {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func filterOutID(ids []string, exclude string) []string {
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != exclude {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 func roleMapForGameOver(s game.Snapshot) map[string]string {

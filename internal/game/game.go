@@ -236,18 +236,40 @@ func (g *Game) IsSeer(playerID string) bool {
 	return g.EffectiveRole(playerID) == RoleSeer
 }
 
+// WerewolfIDs returns IDs of all werewolves (including mayor if mayor's secret is werewolf).
+func (g *Game) WerewolfIDs() []string {
+	var ids []string
+	for _, id := range g.PlayerIDs {
+		if g.EffectiveRole(id) == RoleWerewolf {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 // RoleMessages returns per-player role assignment messages.
 func (g *Game) RoleMessages() []OutMsg {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	werewolfIDs := g.WerewolfIDs()
+
 	msgs := make([]OutMsg, 0, len(g.PlayerIDs)+1)
 	for _, id := range g.PlayerIDs {
 		if id == g.MayorID {
+			payload := map[string]interface{}{"role": "mayor"}
+			// Mayor with werewolf secret sees other werewolves
+			if g.MayorSecret == RoleWerewolf {
+				teammates := filterOut(werewolfIDs, id)
+				payload["werewolves"] = teammates
+			} else if g.MayorSecret == RoleSeer {
+				// Mayor with seer secret sees all werewolves
+				payload["werewolves"] = werewolfIDs
+			}
 			msgs = append(msgs, OutMsg{
 				To:      id,
 				Type:    "role_assigned",
-				Payload: map[string]interface{}{"role": "mayor"},
+				Payload: payload,
 			})
 			msgs = append(msgs, OutMsg{
 				To:      id,
@@ -255,14 +277,35 @@ func (g *Game) RoleMessages() []OutMsg {
 				Payload: map[string]interface{}{"secretRole": string(g.MayorSecret)},
 			})
 		} else {
+			role := g.Roles[id]
+			payload := map[string]interface{}{"role": string(role)}
+			if role == RoleWerewolf {
+				// Werewolf sees other werewolves (teammates)
+				teammates := filterOut(werewolfIDs, id)
+				payload["werewolves"] = teammates
+			} else if role == RoleSeer {
+				// Seer sees all werewolves
+				payload["werewolves"] = werewolfIDs
+			}
 			msgs = append(msgs, OutMsg{
 				To:      id,
 				Type:    "role_assigned",
-				Payload: map[string]interface{}{"role": string(g.Roles[id])},
+				Payload: payload,
 			})
 		}
 	}
 	return msgs
+}
+
+// filterOut returns a copy of ids with the specified id removed.
+func filterOut(ids []string, exclude string) []string {
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != exclude {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 // StartNight initiates night step 1 and returns per-player messages.

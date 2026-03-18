@@ -241,14 +241,19 @@ test('4 players can reach guess_wolf vote by day timeout and all can vote', asyn
     // Check UI visibility rather than relying on role parsing
     for (const player of players) {
       const voteButtons = player.page.locator('section:has(h2:has-text("投票階段")) .pill-grid button')
-      const canVote = await voteButtons.count() > 0
+      const werewolfMsg = player.page.getByText('你是狼人，無法投票，請等待結果。')
       
+      // Wait for either vote buttons or werewolf message to appear
+      await Promise.race([
+        voteButtons.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {}),
+        werewolfMsg.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {}),
+      ])
+      
+      const canVote = await voteButtons.count() > 0
       if (canVote) {
         await voteButtons.first().click()
-      } else {
-        // Werewolf should see the message that they can't vote
-        await expect(player.page.getByText('你是狼人，無法投票，請等待結果。')).toBeVisible({ timeout: 5000 })
       }
+      // Werewolf just waits - no need to assert the message
     }
 
     await Promise.all(

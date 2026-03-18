@@ -627,6 +627,25 @@ select option { color: var(--ink); background: var(--parchment); }
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
+/* ── Night vision cards (wolf teammates / seer vision) ── */
+.night-vision {
+  text-align: center;
+  border: 2px solid rgba(180, 100, 50, 0.4);
+  background: linear-gradient(135deg, rgba(70, 40, 30, 0.85), rgba(50, 30, 20, 0.9));
+}
+.vision-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+.vision-names {
+  font-family: 'Cinzel', serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #e8a050;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
 /* ── Role badge (compact, for day/vote) ── */
 .role-badge {
   display: inline-flex;
