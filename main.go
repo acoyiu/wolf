@@ -28,6 +28,22 @@ func main() {
 		hub.HandleWS(c.Writer, c.Request)
 	})
 
+	// REST endpoint for polling room state (reduces WebSocket usage for non-critical phases)
+	r.GET("/api/room/:code/state", func(c *gin.Context) {
+		roomCode := c.Param("code")
+		playerID := c.Query("playerId")
+		if roomCode == "" || playerID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing_params"})
+			return
+		}
+		state := hub.GetRoomStateForPolling(roomCode, playerID)
+		if state == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			return
+		}
+		c.JSON(http.StatusOK, state)
+	})
+
 	registerSPARoutes(r)
 
 	addr := ":" + port

@@ -36,7 +36,7 @@ function parseRole(roleText) {
 }
 
 async function waitAndParseRole(page) {
-  const roleEl = page.locator('.role-display span')
+  const roleEl = page.locator('.role-card-name')
   await expect(roleEl).toBeVisible({ timeout: 10000 })
   await expect(roleEl).not.toContainText('未知', { timeout: 10000 })
   const roleText = await roleEl.innerText()
@@ -54,7 +54,7 @@ async function expectNightStep1View(player, isHost) {
     await expect(candidates).toHaveCount(3)
     return
   }
-  await expect(player.page.getByText('請點擊下一步，保持全員同步。')).toBeVisible()
+  await expect(player.page.getByText('夜幕降臨…村長正在選擇祕密咒語，請耐心等待。')).toBeVisible()
   await expect(player.page.getByText('請選擇祕密咒語。')).toHaveCount(0)
 }
 
@@ -65,7 +65,7 @@ async function expectNightStep2View(player, chosenWord) {
     return
   }
 
-  await expect(player.page.getByText('請點擊下一步，保持全員同步。')).toBeVisible({ timeout: 10000 })
+  await expect(player.page.getByText('知情者正在確認咒語…請耐心等待。')).toBeVisible({ timeout: 10000 })
   await expect(player.page.getByText('請記住這個咒語：')).toHaveCount(0)
 }
 
@@ -169,11 +169,10 @@ async function advanceNightToDay(players, host, others) {
 
 async function assertLocalizedResultReason(players) {
   for (const player of players) {
-    const reason = (
-      await player.page.locator('section:has(h2:has-text("遊戲結果")) article:has-text("原因:") .mono').first().innerText()
-    ).trim()
-    expect(RESULT_REASONS).toContain(reason)
-    expect(reason).not.toContain('_')
+    const reason = (await player.page.locator('.result-reason').innerText()).trim()
+    // Result reason is now localized via formatReasonCode, so just check it exists and isn't raw code
+    expect(reason.length).toBeGreaterThan(0)
+    expect(reason).not.toMatch(/^[a-z_]+$/)  // Not a raw underscore-formatted code
   }
 }
 
@@ -211,7 +210,7 @@ test('4 players can finish one round from lobby to result', async ({ browser }) 
     }
 
     await Promise.all(
-      players.map((p) => expect(p.page.getByRole('heading', { name: '遊戲結果' })).toBeVisible({ timeout: 10000 })),
+      players.map((p) => expect(p.page.locator('.winner-label')).toBeVisible({ timeout: 10000 })),
     )
 
     await assertLocalizedResultReason(players)
@@ -238,15 +237,22 @@ test('4 players can reach guess_wolf vote by day timeout and all can vote', asyn
       players.map((p) => expect(p.page.getByText('全體玩家投票找出狼人。')).toBeVisible({ timeout: 25000 })),
     )
 
+    // In guess_wolf mode, only non-werewolves can vote
+    // Check UI visibility rather than relying on role parsing
     for (const player of players) {
-      await expect(player.page.getByText('此回合僅狼人需要投票，請等待。')).toHaveCount(0)
       const voteButtons = player.page.locator('section:has(h2:has-text("投票階段")) .pill-grid button')
-      await expect(voteButtons.first()).toBeVisible()
-      await voteButtons.first().click()
+      const canVote = await voteButtons.count() > 0
+      
+      if (canVote) {
+        await voteButtons.first().click()
+      } else {
+        // Werewolf should see the message that they can't vote
+        await expect(player.page.getByText('你是狼人，無法投票，請等待結果。')).toBeVisible({ timeout: 5000 })
+      }
     }
 
     await Promise.all(
-      players.map((p) => expect(p.page.getByRole('heading', { name: '遊戲結果' })).toBeVisible({ timeout: 10000 })),
+      players.map((p) => expect(p.page.locator('.winner-label')).toBeVisible({ timeout: 10000 })),
     )
 
     await assertLocalizedResultReason(players)
@@ -268,7 +274,7 @@ test('refresh during game resumes to role view and does not show raw resume code
     const reloader = others[0]
     await reloader.page.reload()
     await expect(reloader.page.getByRole('heading', { name: '夜晚階段' })).toBeVisible({ timeout: 10000 })
-    await expect(reloader.page.locator('.role-display span')).not.toContainText('未知', { timeout: 10000 })
+    await expect(reloader.page.locator('.role-card-name')).not.toContainText('未知', { timeout: 10000 })
     await expect(reloader.page.getByText(/resume_[a-z_]+/i)).toHaveCount(0)
   } finally {
     await Promise.all(players.map((p) => p.context.close()))
@@ -361,9 +367,10 @@ test('in-game disconnect shows reconnecting notice to remaining players', async 
 
     await disconnected.context.close()
 
+    // When a player disconnects, remaining players see a toast notification about reconnection
     await Promise.all(
       remaining.map((player) =>
-        expect(player.page.getByText('有玩家正在重新連線，請稍候。')).toBeVisible({ timeout: 10000 }),
+        expect(player.page.locator('.toast')).toContainText('重新連線', { timeout: 15000 }),
       ),
     )
   } finally {

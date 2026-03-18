@@ -1021,6 +1021,21 @@ func (h *Hub) ensureTimers(code string) {
 	}
 }
 
+// Shutdown stops all room timers to prevent goroutine leaks.
+// Used in tests to ensure clean teardown between test cases.
+func (h *Hub) Shutdown() {
+	h.mu.Lock()
+	codes := make([]string, 0, len(h.roomTimers))
+	for code := range h.roomTimers {
+		codes = append(codes, code)
+	}
+	h.mu.Unlock()
+
+	for _, code := range codes {
+		h.stopTimers(code)
+	}
+}
+
 func (h *Hub) stopTimers(code string) {
 	h.mu.Lock()
 	rt := h.roomTimers[code]
@@ -1156,6 +1171,120 @@ func parseDifficulty(s string) wordlib.Difficulty {
 	default:
 		return defaultDifficulty
 	}
+}
+
+// GetRoomStateForPolling returns the current state of a room for REST polling.
+// Returns nil if room/player not found.
+func (h *Hub) GetRoomStateForPolling(roomCode, playerID string) map[string]interface{} {
+	rm, ok := h.roomManager.GetRoom(roomCode)
+	if !ok || rm == nil {
+		return nil
+	}
+
+	// Check if player is in the room
+	var playerFound bool
+	var isHost bool
+	roomSnap := rm.Snapshot()
+	for _, p := range roomSnap.Players {
+		if p.ID == playerID {
+			playerFound = true
+			isHost = p.IsHost
+			break
+		}
+	}
+	if !playerFound {
+		return nil
+	}
+
+	state := map[string]interface{}{
+		"roomCode":      roomSnap.Code,
+		"targetPlayers": roomSnap.TargetPlayers,
+		"players":       roomSnap.Players,
+		"roomState":     string(roomSnap.State),
+		"isHost":        isHost,
+	}
+
+	// If game is running, include game state
+	h.mu.RLock()
+	g := h.games[roomCode]
+	rt := h.roomTimers[roomCode]
+	h.mu.RUnlock()
+
+	if g == nil {
+		state["phase"] = "waiting"
+		return state
+	}
+
+	s := g.Snapshot()
+	role := roleForPlayer(s, playerID)
+	isMayor := playerID == s.MayorID
+
+	// Determine effective role for client
+	if isMayor {
+		state["role"] = "mayor"
+		state["mayorSecret"] = string(s.MayorSecret)
+	} else {
+		state["role"] = string(role)
+	}
+
+	state["phase"] = string(s.Phase)
+
+	switch s.Phase {
+	case game.PhaseNightStep1:
+		if isMayor {
+			state["nightStep"] = 1
+			state["candidates"] = s.Candidates
+		} else {
+			state["nightStep"] = 1
+			state["message"] = "waiting"
+		}
+
+	case game.PhaseNightStep2:
+		state["nightStep"] = 2
+		if !isMayor && (role == game.RoleSeer || role == game.RoleWerewolf) {
+			state["word"] = s.Word
+		} else {
+			state["message"] = "waiting"
+		}
+
+	case game.PhaseDay:
+		state["remaining"] = s.Tokens
+		state["history"] = s.TokenHistory
+		if rt != nil && !rt.dayStart.IsZero() {
+			remaining := h.dayTimeout - time.Since(rt.dayStart)
+			if remaining < 0 {
+				remaining = 0
+			}
+			state["timerMs"] = remaining.Milliseconds()
+		}
+
+	case game.PhaseVote:
+		state["voteType"] = string(s.VoteType)
+		if votedFor, ok := s.Votes[playerID]; ok {
+			state["votedFor"] = votedFor
+		}
+		// Count votes for progress
+		state["voteProgress"] = map[string]int{
+			"voted": len(s.Votes),
+			"total": len(s.PlayerIDs),
+		}
+		if rt != nil && !rt.voteStart.IsZero() {
+			remaining := h.voteTimeout - time.Since(rt.voteStart)
+			if remaining < 0 {
+				remaining = 0
+			}
+			state["timerMs"] = remaining.Milliseconds()
+		}
+
+	case game.PhaseResult:
+		state["winner"] = s.Winner
+		state["reason"] = s.Reason
+		state["word"] = s.Word
+		state["roles"] = roleMapForGameOver(s)
+		state["votes"] = s.Votes
+	}
+
+	return state
 }
 
 func baseURLFromRequest(r *http.Request) string {

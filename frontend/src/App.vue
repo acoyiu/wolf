@@ -152,13 +152,13 @@
       <article class="glass card" v-else-if="night.revealWord">
         <p>請記住這個咒語：</p>
         <p class="word">{{ night.revealWord }}</p>
-        <button class="btn" @click="nightConfirm" :disabled="nightConfirmed">{{ nightConfirmed ? '已確認' : '下一步' }}</button>
+        <button class="btn primary" @click="nightConfirm" :disabled="nightConfirmed">{{ nightConfirmed ? '已確認' : '下一步' }}</button>
         <p class="label" v-if="nightConfirmed">等待其他玩家...</p>
       </article>
 
       <article class="glass card" v-else>
         <p class="night-flavor">{{ nightFlavorText }}</p>
-        <button class="btn" @click="nightConfirm" :disabled="nightConfirmed">{{ nightConfirmed ? '已確認' : '下一步' }}</button>
+        <button class="btn primary" @click="nightConfirm" :disabled="nightConfirmed">{{ nightConfirmed ? '已確認' : '下一步' }}</button>
         <p class="label" v-if="nightConfirmed">等待其他玩家...</p>
       </article>
 
@@ -326,6 +326,7 @@
 import { computed, reactive, ref, watch, onBeforeUnmount, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useSocket } from './composables/useSocket'
+import { usePolling } from './composables/usePolling'
 import RoleWerewolf from './icons/RoleWerewolf.vue'
 import RoleSeer from './icons/RoleSeer.vue'
 import RoleVillager from './icons/RoleVillager.vue'
@@ -343,6 +344,7 @@ const joinCode = ref(inviteCodeFromUrl.value || savedSession?.roomCode || '')
 const toastText = ref('')
 let resumeHintTimerId = 0
 let pendingResumeNewId = ''
+let pendingAction = null  // { type, payload } to execute after connected
 
 const playerId = ref('')
 const myRole = ref('')
@@ -407,6 +409,10 @@ const wsUrl = () => {
 }
 
 const { status, reconnectAttempts, errorMessage, lastMessage, send, close: closeSocket, connect: connectSocket } = useSocket(wsUrl)
+const { isPolling, lastPollData, pollError, startPolling, stopPolling } = usePolling()
+
+// Communication mode: 'ws' (WebSocket for day phase) or 'poll' (polling for other phases)
+const commMode = ref('poll')
 
 const statusText = computed(() => {
   switch (status.value) {
@@ -503,7 +509,94 @@ watch([playerId, myNickname, () => room.roomCode], () => { persistSession() })
 // Generate particles when view changes
 watch(view, (v) => {
   generateParticles(v)
+  // Switch communication mode based on phase
+  updateCommMode(v)
 })
+
+// Handle poll data updates
+watch(lastPollData, (data) => {
+  if (!data || commMode.value !== 'poll') return
+  applyPollState(data)
+})
+
+function updateCommMode(phase) {
+  // Active game phases need WebSocket for commands and real-time feedback.
+  // Only disconnect in lobby (no game started) and result (game over).
+  // This reduces idle connections while ensuring game works properly.
+
+  if (phase === 'lobby' || phase === 'result') {
+    // No connection needed - game not active
+    commMode.value = 'poll'
+    stopPolling()
+    closeSocket()
+  } else {
+    // All active phases (waiting, night, day, vote) use WebSocket
+    commMode.value = 'ws'
+    stopPolling()
+    if (status.value !== 'connected') {
+      connectSocket()
+    }
+  }
+}
+
+function applyPollState(data) {
+  // Update room state
+  if (data.players) {
+    room.players = data.players
+  }
+  if (data.targetPlayers) {
+    room.targetPlayers = data.targetPlayers
+  }
+
+  // Update role if provided
+  if (data.role && data.role !== myRole.value) {
+    myRole.value = data.role
+    if (data.role === 'mayor' && data.mayorSecret) {
+      mayorSecret.value = data.mayorSecret
+    }
+  }
+
+  // Update phase-specific state
+  const phase = data.phase
+  if (phase === 'waiting' && view.value !== 'waiting') {
+    view.value = 'waiting'
+  } else if ((phase === 'night_step1' || phase === 'night_step2') && view.value !== 'night') {
+    view.value = 'night'
+    if (data.nightStep === 1 && data.candidates) {
+      night.step = 1
+      night.candidates = data.candidates
+    } else if (data.nightStep === 2) {
+      night.step = 2
+      if (data.word) night.revealWord = data.word
+    }
+  } else if (phase === 'day') {
+    // Should switch to WS mode, but handle in case poll comes through
+    if (view.value !== 'day') view.value = 'day'
+    if (data.remaining) day.remaining = data.remaining
+    if (data.history) day.history = data.history
+    if (data.timerMs !== undefined) {
+      timer.remainingMs = data.timerMs
+    }
+  } else if (phase === 'vote' && view.value !== 'vote') {
+    view.value = 'vote'
+    if (data.voteType) voteMode.value = data.voteType === 'guess_seer' ? 'guess_seer' : 'guess_wolf'
+    if (data.votedFor) votedFor.value = data.votedFor
+    if (data.voteProgress) {
+      voteProgress.voted = data.voteProgress.voted || 0
+      voteProgress.total = data.voteProgress.total || 0
+    }
+    if (data.timerMs !== undefined) {
+      timer.remainingMs = data.timerMs
+    }
+  } else if (phase === 'result' && view.value !== 'result') {
+    view.value = 'result'
+    result.winner = data.winner || ''
+    result.reason = data.reason || ''
+    result.word = data.word || ''
+    result.roles = data.roles || {}
+    result.votes = data.votes || {}
+  }
+}
 
 function generateParticles(phase) {
   const count = 20
@@ -671,7 +764,15 @@ function handleMessage(msg) {
 
   switch (msg.type) {
     case 'connected':
-      tryResumeSession(payload.playerId || '')
+      // Execute pending action if any (e.g., create_room or join_room after lazy connect)
+      if (pendingAction) {
+        const action = pendingAction
+        pendingAction = null
+        playerId.value = payload.playerId || ''
+        emit(action.type, action.payload)
+      } else {
+        tryResumeSession(payload.playerId || '')
+      }
       break
     case 'session_resumed':
       pendingResumeNewId = ''
@@ -879,17 +980,31 @@ function createRoom() {
   if (!myNickname.value) return toast('nickname_required')
   const n = Number(targetPlayers.value)
   if (!n || n < 4 || n > 10) return toast('invalid_player_count')
-  emit('create_room', {
+  const payload = {
     nickname: myNickname.value,
     targetPlayers: n,
     difficulty: difficulty.value,
-  })
+  }
+  // Lazy connect: if not connected, connect first then send
+  if (status.value !== 'connected') {
+    pendingAction = { type: 'create_room', payload }
+    connectSocket()
+  } else {
+    emit('create_room', payload)
+  }
 }
 
 function joinRoom() {
   if (!myNickname.value) return toast('nickname_required')
   if (!joinCode.value) return toast('room_code_required')
-  emit('join_room', { roomCode: joinCode.value.toUpperCase(), nickname: myNickname.value })
+  const payload = { roomCode: joinCode.value.toUpperCase(), nickname: myNickname.value }
+  // Lazy connect: if not connected, connect first then send
+  if (status.value !== 'connected') {
+    pendingAction = { type: 'join_room', payload }
+    connectSocket()
+  } else {
+    emit('join_room', payload)
+  }
 }
 
 function leaveRoom() { emit('leave_room', {}); resetToLobby() }
@@ -979,11 +1094,40 @@ function loadSession() {
 
 function clearSession() { window.localStorage.removeItem(SESSION_KEY) }
 
+// Queue for commands to send when WS connects (for poll mode)
+let commandQueue = []
+
 function emit(type, payload) {
+  // If in poll mode and WS not connected, connect and queue the command
+  if (commMode.value === 'poll' && status.value !== 'connected') {
+    commandQueue.push({ type, payload })
+    connectSocket()
+    return true  // Optimistically return true, command will be sent on connect
+  }
   const ok = send(type, payload)
   if (!ok) toast('socket_not_connected')
   return ok
 }
+
+// Process command queue when WS connects
+watch(status, (newStatus) => {
+  if (newStatus === 'connected' && commandQueue.length > 0) {
+    // Send queued commands
+    const commands = [...commandQueue]
+    commandQueue = []
+    for (const cmd of commands) {
+      send(cmd.type, cmd.payload)
+    }
+    // If in poll mode, schedule disconnect after a short delay (let response come back)
+    if (commMode.value === 'poll') {
+      setTimeout(() => {
+        if (commMode.value === 'poll' && status.value === 'connected') {
+          closeSocket()
+        }
+      }, 2000)  // Keep connection for 2s to receive response
+    }
+  }
+})
 
 function roleName(role) {
   switch (role) {
@@ -1186,9 +1330,19 @@ function resetToLobby() {
   joinCode.value = ''
   inviteCodeFromUrl.value = ''
   resetGameState()
-  connectSocket()
+  pendingAction = null
+  commandQueue = []
+  commMode.value = 'poll'
+  stopPolling()
+  closeSocket()  // Disconnect when returning to lobby (lazy connection)
   if (window.location.search) {
     window.history.replaceState({}, '', window.location.pathname)
   }
+}
+
+// Startup: only connect if we have a session to resume (lazy connection)
+// Otherwise, wait until user clicks create/join
+if (savedSession?.playerId && savedSession?.roomCode) {
+  connectSocket()
 }
 </script>

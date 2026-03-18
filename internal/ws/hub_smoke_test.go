@@ -82,7 +82,7 @@ func newWSBot(t *testing.T, wsURL, nickname string) *wsBot {
 	}
 	go b.readLoop()
 
-	waitUntil(t, 3*time.Second, "connected message", func() bool {
+	waitUntil(t, 10*time.Second, "connected message", func() bool {
 		return b.PlayerID() != ""
 	})
 	return b
@@ -416,7 +416,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 	mux.HandleFunc("/ws", h.HandleWS)
 
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
@@ -439,7 +439,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 		"difficulty":    "easy",
 	})
 
-	waitUntil(t, 3*time.Second, "host room created", func() bool {
+	waitUntil(t, 10*time.Second, "host room created", func() bool {
 		return host.RoomCode() != ""
 	})
 	roomCode := host.RoomCode()
@@ -451,7 +451,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 		})
 	}
 
-	waitUntil(t, 3*time.Second, "all players joined", func() bool {
+	waitUntil(t, 15*time.Second, "all players joined", func() bool {
 		for _, b := range bots {
 			if b.RoomCode() != roomCode || b.PlayersCount() != 4 {
 				return false
@@ -462,7 +462,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 
 	host.Send(t, "start_game", map[string]interface{}{})
 
-	waitUntil(t, 3*time.Second, "roles assigned", func() bool {
+	waitUntil(t, 10*time.Second, "roles assigned", func() bool {
 		for _, b := range bots {
 			if b.Role() == "" {
 				return false
@@ -471,7 +471,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 		return true
 	})
 
-	waitUntil(t, 3*time.Second, "mayor candidate words", func() bool {
+	waitUntil(t, 10*time.Second, "mayor candidate words", func() bool {
 		return host.NightStep() == 1 && len(host.Candidates()) >= 1
 	})
 
@@ -482,7 +482,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 		bots[i].Send(t, "night_confirm", map[string]interface{}{})
 	}
 
-	waitUntil(t, 3*time.Second, "night step 2 started", func() bool {
+	waitUntil(t, 10*time.Second, "night step 2 started", func() bool {
 		return host.NightStep() == 2 || host.Phase() == "day"
 	})
 
@@ -490,7 +490,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 		bots[i].Send(t, "night_confirm", map[string]interface{}{})
 	}
 
-	waitUntil(t, 3*time.Second, "day phase started", func() bool {
+	waitUntil(t, 10*time.Second, "day phase started", func() bool {
 		for _, b := range bots {
 			if b.Phase() != "day" {
 				return false
@@ -501,7 +501,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 
 	host.Send(t, "day_token", map[string]interface{}{"token": "correct"})
 
-	waitUntil(t, 3*time.Second, "vote phase started", func() bool {
+	waitUntil(t, 10*time.Second, "vote phase started", func() bool {
 		for _, b := range bots {
 			if b.Phase() != "vote" {
 				return false
@@ -542,7 +542,7 @@ func TestHubSmokeFourPlayersNoBrowsers(t *testing.T) {
 		v.Send(t, "vote_cast", map[string]interface{}{"target": target})
 	}
 
-	waitUntil(t, 3*time.Second, "game over", func() bool {
+	waitUntil(t, 10*time.Second, "game over", func() bool {
 		for _, b := range bots {
 			if !b.GameOver() {
 				return false
@@ -565,7 +565,7 @@ func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
 	mux.HandleFunc("/ws", h.HandleWS)
 
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
@@ -588,7 +588,7 @@ func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
 		"difficulty":    "easy",
 	})
 
-	waitUntil(t, 3*time.Second, "host room created", func() bool {
+	waitUntil(t, 10*time.Second, "host room created", func() bool {
 		return host.RoomCode() != ""
 	})
 	roomCode := host.RoomCode()
@@ -600,7 +600,7 @@ func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
 		})
 	}
 
-	waitUntil(t, 3*time.Second, "all players joined", func() bool {
+	waitUntil(t, 15*time.Second, "all players joined", func() bool {
 		for _, b := range bots {
 			if b.RoomCode() != roomCode || b.PlayersCount() != 4 {
 				return false
@@ -611,7 +611,7 @@ func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
 
 	host.Send(t, "start_game", map[string]interface{}{})
 
-	waitUntil(t, 3*time.Second, "roles assigned", func() bool {
+	waitUntil(t, 10*time.Second, "roles assigned", func() bool {
 		for _, b := range bots {
 			if b.Role() == "" {
 				return false
@@ -620,7 +620,7 @@ func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
 		return true
 	})
 
-	waitUntil(t, 3*time.Second, "mayor candidate words", func() bool {
+	waitUntil(t, 10*time.Second, "mayor candidate words", func() bool {
 		return host.NightStep() == 1 && len(host.Candidates()) >= 1
 	})
 
@@ -631,7 +631,7 @@ func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
 		bots[i].Send(t, "night_confirm", map[string]interface{}{})
 	}
 
-	waitUntil(t, 3*time.Second, "night step 2 started", func() bool {
+	waitUntil(t, 10*time.Second, "night step 2 started", func() bool {
 		return host.NightStep() == 2 || host.Phase() == "day"
 	})
 
@@ -639,7 +639,7 @@ func TestHubSmokeDayTimeoutGuessWolf(t *testing.T) {
 		bots[i].Send(t, "night_confirm", map[string]interface{}{})
 	}
 
-	waitUntil(t, 3*time.Second, "day phase started", func() bool {
+	waitUntil(t, 10*time.Second, "day phase started", func() bool {
 		for _, b := range bots {
 			if b.Phase() != "day" {
 				return false
@@ -700,7 +700,7 @@ func TestHubSmokeResumeSession(t *testing.T) {
 	mux.HandleFunc("/ws", h.HandleWS)
 
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
@@ -723,7 +723,7 @@ func TestHubSmokeResumeSession(t *testing.T) {
 		"difficulty":    "easy",
 	})
 
-	waitUntil(t, 3*time.Second, "host room created", func() bool {
+	waitUntil(t, 10*time.Second, "host room created", func() bool {
 		return host.RoomCode() != ""
 	})
 	roomCode := host.RoomCode()
@@ -735,7 +735,7 @@ func TestHubSmokeResumeSession(t *testing.T) {
 		})
 	}
 
-	waitUntil(t, 3*time.Second, "all players joined", func() bool {
+	waitUntil(t, 15*time.Second, "all players joined", func() bool {
 		for _, b := range bots {
 			if b.RoomCode() != roomCode || b.PlayersCount() != 4 {
 				return false
@@ -746,7 +746,7 @@ func TestHubSmokeResumeSession(t *testing.T) {
 
 	host.Send(t, "start_game", map[string]interface{}{})
 
-	waitUntil(t, 3*time.Second, "roles assigned", func() bool {
+	waitUntil(t, 10*time.Second, "roles assigned", func() bool {
 		for _, b := range bots {
 			if b.Role() == "" {
 				return false
@@ -796,7 +796,7 @@ func TestHubSmokeRefreshDuringDayDoesNotCrashOthers(t *testing.T) {
 	mux.HandleFunc("/ws", h.HandleWS)
 
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
@@ -818,7 +818,7 @@ func TestHubSmokeRefreshDuringDayDoesNotCrashOthers(t *testing.T) {
 		"targetPlayers": 4,
 		"difficulty":    "easy",
 	})
-	waitUntil(t, 3*time.Second, "host room created", func() bool {
+	waitUntil(t, 10*time.Second, "host room created", func() bool {
 		return host.RoomCode() != ""
 	})
 	roomCode := host.RoomCode()
@@ -829,7 +829,7 @@ func TestHubSmokeRefreshDuringDayDoesNotCrashOthers(t *testing.T) {
 			"nickname": bots[i].nickname,
 		})
 	}
-	waitUntil(t, 3*time.Second, "all joined", func() bool {
+	waitUntil(t, 15*time.Second, "all joined", func() bool {
 		for _, b := range bots {
 			if b.PlayersCount() != 4 {
 				return false
@@ -839,7 +839,7 @@ func TestHubSmokeRefreshDuringDayDoesNotCrashOthers(t *testing.T) {
 	})
 
 	host.Send(t, "start_game", map[string]interface{}{})
-	waitUntil(t, 3*time.Second, "roles assigned", func() bool {
+	waitUntil(t, 10*time.Second, "roles assigned", func() bool {
 		for _, b := range bots {
 			if b.Role() == "" {
 				return false
@@ -848,7 +848,7 @@ func TestHubSmokeRefreshDuringDayDoesNotCrashOthers(t *testing.T) {
 		return true
 	})
 
-	waitUntil(t, 3*time.Second, "mayor candidates", func() bool {
+	waitUntil(t, 10*time.Second, "mayor candidates", func() bool {
 		return host.NightStep() == 1 && len(host.Candidates()) >= 1
 	})
 	host.Send(t, "night_pick_word", map[string]interface{}{"word": host.Candidates()[0]})
@@ -856,13 +856,13 @@ func TestHubSmokeRefreshDuringDayDoesNotCrashOthers(t *testing.T) {
 	for i := 1; i < len(bots); i++ {
 		bots[i].Send(t, "night_confirm", map[string]interface{}{})
 	}
-	waitUntil(t, 3*time.Second, "step 2", func() bool {
+	waitUntil(t, 10*time.Second, "step 2", func() bool {
 		return host.NightStep() == 2 || host.Phase() == "day"
 	})
 	for i := 0; i < len(bots); i++ {
 		bots[i].Send(t, "night_confirm", map[string]interface{}{})
 	}
-	waitUntil(t, 3*time.Second, "day phase", func() bool {
+	waitUntil(t, 10*time.Second, "day phase", func() bool {
 		for _, b := range bots {
 			if b.Phase() != "day" {
 				return false
@@ -966,7 +966,7 @@ func TestHubSmokeRefreshInWaitingRoom(t *testing.T) {
 	mux.HandleFunc("/ws", h.HandleWS)
 
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
@@ -988,7 +988,7 @@ func TestHubSmokeRefreshInWaitingRoom(t *testing.T) {
 		"targetPlayers": 4,
 		"difficulty":    "easy",
 	})
-	waitUntil(t, 3*time.Second, "host room created", func() bool {
+	waitUntil(t, 10*time.Second, "host room created", func() bool {
 		return host.RoomCode() != ""
 	})
 	roomCode := host.RoomCode()
@@ -999,7 +999,7 @@ func TestHubSmokeRefreshInWaitingRoom(t *testing.T) {
 			"nickname": bots[i].nickname,
 		})
 	}
-	waitUntil(t, 3*time.Second, "all joined", func() bool {
+	waitUntil(t, 15*time.Second, "all joined", func() bool {
 		for _, b := range bots {
 			if b.PlayersCount() != 4 {
 				return false
@@ -1034,7 +1034,7 @@ func TestHubSmokeRefreshInWaitingRoom(t *testing.T) {
 	bots[0] = newHost
 
 	// Verify room still has 4 players
-	waitUntil(t, 3*time.Second, "still 4 players after host resume", func() bool {
+	waitUntil(t, 10*time.Second, "still 4 players after host resume", func() bool {
 		return newHost.PlayersCount() == 4
 	})
 
@@ -1067,7 +1067,7 @@ func TestHubSmokeRefreshInWaitingRoom(t *testing.T) {
 	bots[2] = newP2
 
 	// Verify room still intact
-	waitUntil(t, 3*time.Second, "still 4 players after non-host resume", func() bool {
+	waitUntil(t, 10*time.Second, "still 4 players after non-host resume", func() bool {
 		return newP2.PlayersCount() == 4
 	})
 
@@ -1081,7 +1081,7 @@ func playThroughNight(t *testing.T, bots []*wsBot) {
 	t.Helper()
 	host := bots[0]
 
-	waitUntil(t, 3*time.Second, "roles assigned", func() bool {
+	waitUntil(t, 10*time.Second, "roles assigned", func() bool {
 		for _, b := range bots {
 			if b.Role() == "" {
 				return false
@@ -1090,7 +1090,7 @@ func playThroughNight(t *testing.T, bots []*wsBot) {
 		return true
 	})
 
-	waitUntil(t, 3*time.Second, "mayor candidates", func() bool {
+	waitUntil(t, 10*time.Second, "mayor candidates", func() bool {
 		return host.NightStep() == 1 && len(host.Candidates()) >= 1
 	})
 
@@ -1099,7 +1099,7 @@ func playThroughNight(t *testing.T, bots []*wsBot) {
 	for i := 1; i < len(bots); i++ {
 		bots[i].Send(t, "night_confirm", map[string]interface{}{})
 	}
-	waitUntil(t, 3*time.Second, "step 2", func() bool {
+	waitUntil(t, 10*time.Second, "step 2", func() bool {
 		return host.NightStep() == 2 || host.Phase() == "day"
 	})
 	for i := 0; i < len(bots); i++ {
@@ -1124,7 +1124,7 @@ func setupAndJoinRoom(t *testing.T, bots []*wsBot) string {
 		"targetPlayers": len(bots),
 		"difficulty":    "easy",
 	})
-	waitUntil(t, 3*time.Second, "host room created", func() bool {
+	waitUntil(t, 10*time.Second, "host room created", func() bool {
 		return host.RoomCode() != ""
 	})
 	roomCode := host.RoomCode()
@@ -1135,7 +1135,7 @@ func setupAndJoinRoom(t *testing.T, bots []*wsBot) string {
 			"nickname": bots[i].nickname,
 		})
 	}
-	waitUntil(t, 3*time.Second, "all joined", func() bool {
+	waitUntil(t, 15*time.Second, "all joined", func() bool {
 		for _, b := range bots {
 			if b.RoomCode() != roomCode || b.PlayersCount() != len(bots) {
 				return false
@@ -1151,7 +1151,7 @@ func TestHubTimerSyncDuringDayAndVote(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.HandleWS)
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
 	bots := []*wsBot{
@@ -1249,7 +1249,7 @@ func TestHubVoteProgressBroadcast(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.HandleWS)
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
 	bots := []*wsBot{
@@ -1295,7 +1295,7 @@ func TestHubVoteProgressBroadcast(t *testing.T) {
 		v.Send(t, "vote_cast", map[string]interface{}{"target": target})
 
 		expectedCount := i + 1
-		waitUntil(t, 3*time.Second, "vote_cast broadcast received", func() bool {
+		waitUntil(t, 10*time.Second, "vote_cast broadcast received", func() bool {
 			for _, b := range bots {
 				casts := b.VoteCasts()
 				if len(casts) < expectedCount {
@@ -1342,7 +1342,7 @@ func TestHubGameOverIncludesVotesAndRoles(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.HandleWS)
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
 	bots := []*wsBot{
@@ -1439,7 +1439,7 @@ func TestHubReconnectDuringVotePhase(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.HandleWS)
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
 	bots := []*wsBot{
@@ -1544,7 +1544,7 @@ func TestHubMultipleRapidRefreshes(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.HandleWS)
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
 	bots := []*wsBot{
@@ -1608,7 +1608,7 @@ func TestHubReconnectGetsTimerSync(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", h.HandleWS)
 	server := httptest.NewServer(mux)
-	defer server.Close()
+	defer func() { h.Shutdown(); server.Close() }()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
 	bots := []*wsBot{

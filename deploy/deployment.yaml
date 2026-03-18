@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: wolfword
-          image: ttl.sh/wolfword-aco:2h
+          image: ttl.sh/wolfword:2h
           imagePullPolicy: Always
           ports:
             - containerPort: 3001

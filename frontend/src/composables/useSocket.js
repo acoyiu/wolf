@@ -105,12 +105,15 @@ export function useSocket(urlFactory) {
   const close = () => {
     manualClose = true
     clearHeartbeat()
+    reconnectAttempts.value = 0
     if (socket.value) {
       socket.value.close()
+      socket.value = null
     }
+    status.value = 'disconnected'
   }
 
-  onMounted(connect)
+  // No auto-connect - let caller decide when to connect (lazy connection)
   onBeforeUnmount(close)
 
   return {
