@@ -416,6 +416,20 @@ select option { color: var(--ink); background: var(--parchment); }
 .card { padding: 0.95rem; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.8rem; }
 .actions { display: flex; gap: 0.62rem; margin-top: 0.95rem; }
+.actions.leave-game {
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+.actions.leave-game .btn {
+  background: rgba(90, 53, 32, 0.6);
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0.4rem 1rem;
+}
+.actions.leave-game .btn:hover {
+  background: rgba(120, 60, 30, 0.8);
+  color: var(--ink-light);
+}
 
 /* Room code -- gold emboss */
 .code {

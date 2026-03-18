@@ -161,6 +161,10 @@
         <button class="btn" @click="nightConfirm" :disabled="nightConfirmed">{{ nightConfirmed ? '已確認' : '下一步' }}</button>
         <p class="label" v-if="nightConfirmed">等待其他玩家...</p>
       </article>
+
+      <div class="actions leave-game">
+        <button class="btn" @click="leaveGame">離開遊戲</button>
+      </div>
     </section>
 
     <section class="panel" v-if="view === 'day'">
@@ -218,6 +222,10 @@
           <span class="label" v-if="day.history.length === 0">目前還沒有回應。</span>
         </div>
       </article>
+
+      <div class="actions leave-game">
+        <button class="btn" @click="leaveGame">離開遊戲</button>
+      </div>
     </section>
 
     <section class="panel" v-if="view === 'vote'">
@@ -257,6 +265,10 @@
         </button>
       </div>
       <p v-if="votedFor && canVoteInCurrentMode" class="label">你已投給: {{ nameById(votedFor) }}</p>
+
+      <div class="actions leave-game">
+        <button class="btn" @click="leaveGame">離開遊戲</button>
+      </div>
     </section>
 
     <section class="panel" v-if="view === 'result'">
@@ -883,6 +895,12 @@ function joinRoom() {
 function leaveRoom() { emit('leave_room', {}); resetToLobby() }
 function startGame() { emit('start_game', {}) }
 function returnToLobby() { resetToLobby() }
+function leaveGame() {
+  if (confirm('確定要離開遊戲嗎？這會影響其他玩家的遊戲體驗。')) {
+    emit('leave_room', {})
+    resetToLobby()
+  }
+}
 
 function rejoinGame() {
   const nick = myNickname.value
